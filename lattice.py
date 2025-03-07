@@ -144,14 +144,14 @@ class SquareLattice:
         self.density_matrix = 1/(occupation_fraction * self.L**2) * self.energy_states @ rho_energy_basis @ self.energy_states.T.conj()
 
 
-    def evolve(self, force_reevolve=False) -> None:
+    def evolve(self, force_reevolve=False, **mesolve_kwargs) -> None:
         if self.states is not None and not force_reevolve:
             print("Lattice was already evolved, call with force_reevolve=True to simulate again.")
             return
         H = [qu.Qobj(self.H_hop), [qu.Qobj(self.H_onsite), self.E]]
         rho = qu.Qobj(self.density_matrix)
         step_list = np.linspace(0, self.h*self.steps, self.steps)
-        sim = qu.mesolve(H, rho, step_list)
+        sim = qu.mesolve(H, rho, step_list, **mesolve_kwargs)
 
         self.states = list(map(lambda qu_state: qu_state.data_as(format="ndarray"), sim.states))
 
