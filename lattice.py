@@ -246,25 +246,20 @@ class Lattice2D:
                 curl_circle = plt.Circle(
                     (x + 0.5, y - 0.5),
                     0.2,
-                    facecolor="none",
+                    facecolor="blue" if curl_val > 0 else "red",
                     zorder=3,
-                    edgecolor="black",
                 )
 
                 ax.text(
                     x + 0.5,
                     y - 0.5,
                     f"{curl_val:.2f}",
-                    color="black",
+                    color="white",
                     ha="center",
                     va="center",
                     fontsize=10,
+                    zorder=4
                 )
-
-                if curl_val > 0:
-                    curl_circle.set_edgecolor("blue")
-                elif curl_val < 0:
-                    curl_circle.set_edgecolor("red")
 
                 ax.add_patch(curl_circle)
 
