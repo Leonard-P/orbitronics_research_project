@@ -173,7 +173,7 @@ class Lattice2D:
         self.states = list(map(lambda qu_state: qu_state.data_as(format="ndarray"), sim.states))
 
     def save_current_density_animation(self, filename: str, sample_every: int = 1, curl_norm: float = 1, **save_format_kwargs) -> None:
-        fig, ax = plt.subplots(figsize=(2 * self.Lx, 2 * self.Ly))
+        fig, ax = plt.subplots(figsize=(2 * self.Lx + 2, 2 * self.Ly))
 
         n_frames = len(self.states) // sample_every
 
@@ -222,7 +222,7 @@ class Lattice2D:
         curl = self.curl(current_matrix)
 
         if ax is None:
-            _, ax = plt.subplots(figsize=(2 * self.Lx, 2 * self.Ly))
+            _, ax = plt.subplots(figsize=(2 * self.Lx + 2, 2 * self.Ly))
         else:
             ax.clear()
             # ax.set_xlim(2*self.L)
@@ -324,16 +324,14 @@ class Lattice2D:
         arrow_x, arrow_y = self.Lx - 0.1, -1  # Position outside grid
 
         Emax = max([np.abs(self.E(i * self.h)) for i in range(self.steps)])
+        Ey, Ex = 1 / Emax * self.E(state_index * self.h) * self.E_dir
 
-        Ey, Ex = 1 / Emax * self.E(state_index * self.h) * self.E_dir  # Extract components
+        polarisation = self.polarisation(state_matrix)
+        polarisation_current = self.polarisation_current(state_matrix, self.get_state(state_index - 1) if state_index > 0 else state_matrix)
 
-        ax.annotate(
-            "",
-            xy=(arrow_x + Ex, arrow_y - Ey),
-            xytext=(arrow_x, arrow_y),
-            arrowprops=dict(arrowstyle="->", color="black", lw=4),
-        )
-        ax.text(arrow_x + 0.2, arrow_y, "$E$", fontsize=14, color="black")
+        Lattice2D.plot_arrow(ax, arrow_x+0.5, arrow_y, *polarisation, color="black", label="$\\vec P$")
+        Lattice2D.plot_arrow(ax, arrow_x+1, arrow_y, *polarisation_current, color="blue", label="$\\frac{\\partial \\vec P}{\\partial t}$")
+        Lattice2D.plot_arrow(ax, arrow_x, arrow_y, Ex, Ey, color="red", label="$\\vec E$")
 
         # annotate step
         ax.text(
@@ -351,6 +349,27 @@ class Lattice2D:
         if show_plot:
             plt.show()
 
+    def polarisation(self, state_matrix: np.ndarray) -> np.ndarray:
+        return np.sum([
+            np.array([i, j]) * state_matrix.diagonal().real[self.Lx * j + i]
+            for j in range(self.Ly)
+            for i in range(self.Lx)
+        ], axis=0) - (np.array([self.Lx, self.Ly]) - 1)/2
+    
+    def polarisation_current(self, state_matrix: np.ndarray, previous_step_state_matrix: np.ndarray) -> np.ndarray:
+        return (self.polarisation(state_matrix) - self.polarisation(previous_step_state_matrix)) / self.h
+    
+    @staticmethod
+    def plot_arrow(ax, x, y, dx, dy, color="black", label=""):
+        ax.annotate(
+            "",
+            xy=(x + dx, y - dy),
+            xytext=(x, y),
+            arrowprops=dict(arrowstyle="->", color=color, lw=4),
+        )
+
+        if label: ax.text(x + 0.2, y, label, fontsize=14, color=color)
+
     def curl(self, J: np.ndarray) -> np.ndarray:
         cell_width = (self.cell_path.flatten() % self.Lx).max()
         cell_height = (self.cell_path.flatten() // self.Lx).max()
@@ -363,6 +382,11 @@ class Lattice2D:
                 curl[site_index] = sum([J[site_index + di, site_index + dj] for di, dj in self.cell_path])
         return curl
     
+    @property
+    def maximum_curl(self):
+        return max([max(self.curl(self.get_current_density(state)).values()) for state in self.states])
+
+
 
 class BrickwallLattice(Lattice2D):
     def __init__(self, *args, **kwargs):
@@ -393,8 +417,8 @@ class BrickwallLattice(Lattice2D):
         # curl_row_length = self.L-cell_width
 
         for i in range(0, self.Ly - cell_height, cell_height):
-            for j in range(0, self.Lx - cell_width, cell_width):
-                site_index = self.Lx * i + j + i % 2
+            for j in range(i%2, self.Lx - cell_width, cell_width):
+                site_index = self.Lx * i + j
                 curl[site_index] = sum([J[site_index + di, site_index + dj] for di, dj in self.cell_path])
         return curl
     
