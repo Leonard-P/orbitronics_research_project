@@ -6,7 +6,19 @@ from typing import List, Tuple, Union, Callable
 import qutip as qu
 from scipy import linalg
 import warnings
+import pickle
 from tqdm import tqdm
+from dataclasses import dataclass
+from numpy.typing import NDArray
+
+
+@dataclass
+class LatticeState:
+    state: NDArray[np.complex64]
+    current: NDArray[np.float64]
+    polarisation: NDArray[np.float64]
+    curl: NDArray[np.float64]
+    curl_polarisation: NDArray[np.float64]
 
 
 class Lattice2D:
@@ -36,6 +48,8 @@ class Lattice2D:
         self.t_hop = t_hop
         self.t = 0  # time
         self.cell_path = np.array([(0, 1), (1, self.Lx + 1), (self.Lx + 1, self.Lx), (self.Lx, 0)])  # path around a cell for curl calculation
+        print(self.cell_height)
+        print(self.cell_width)
 
         if callable(E_amplitude):
             self.E = E_amplitude
@@ -50,7 +64,7 @@ class Lattice2D:
 
         self.density_matrix = np.zeros((self.N, self.N), dtype=complex)
 
-        self.states = None
+        self.states: list[LatticeState] = None
 
         self.h = h
         self.steps = steps
@@ -63,6 +77,26 @@ class Lattice2D:
             self.set_fractional_occupation(initial_occupation)
             print(f"{100 * initial_occupation:.0f} % of states were set as initially occupied.")
 
+        self.origin = (np.array([self.Lx, self.Ly]) - 1)/2 # center of lattice. Polarisation is dependent of origin.
+
+
+    @property
+    def cell_path(self):
+        return self._cell_path
+    
+
+    @property
+    def curl_origin(self):
+        return self.origin - np.array([self.cell_width, self.cell_height]) / 2
+    
+
+    @cell_path.setter
+    def cell_path(self, path: np.ndarray):
+        self._cell_path = path
+        self.cell_width = (self.cell_path.flatten() % self.Lx).max()
+        self.cell_height = (self.cell_path.flatten() // self.Lx).max()
+
+
     def create_hopping_hamiltonian(self) -> np.ndarray:
         x_hop = np.tile([self.t_hop] * (self.Lx - 1) + [0], self.Ly)[:-1]
         y_hop = np.array([self.t_hop] * self.Lx * (self.Ly - 1))
@@ -74,6 +108,7 @@ class Lattice2D:
         potentials = [-np.dot([i, j], self.E_dir) for i in range(self.Ly) for j in range(self.Lx)]  # - E . r
         potentials -= np.mean(potentials)  # center around 0
         return np.diag(potentials)
+    
 
     @property
     def H(self):
@@ -170,12 +205,39 @@ class Lattice2D:
         step_list = np.linspace(0, self.h * self.steps, self.steps)
         sim = qu.mesolve(H, rho, step_list, **mesolve_kwargs)
 
-        self.states = list(map(lambda qu_state: qu_state.data_as(format="ndarray"), sim.states))
+        self.states = [
+            self.get_lattice_state(state.data_as(format="ndarray"))
+            for state in sim.states
+        ]
+        
+        
+    def get_lattice_state(self, state_matrix: np.ndarray) -> LatticeState:
+        current_matrix = self.get_current_density(state_matrix)
+        polarisation = self.polarisation(state_matrix)
+        curl = self.curl(current_matrix)
+        curl_polarisation = self.curl_polarisation(curl)
+        return LatticeState(
+            state=state_matrix,
+            current=current_matrix,
+            polarisation=polarisation,
+            curl=curl,
+            curl_polarisation=curl_polarisation,
+        )
+    
 
     def save_current_density_animation(self, filename: str, sample_every: int = 1, curl_norm: float = 1, **save_format_kwargs) -> None:
         fig, ax = plt.subplots(figsize=(2 * self.Lx + 2, 2 * self.Ly))
 
         n_frames = len(self.states) // sample_every
+
+        curl_norm = max([max(np.abs(list(self.curl(self.get_current_density(state.state)).values()))) for state in self.states])
+        Emax = max([np.abs(self.E(i * self.h)) for i in range(self.steps)])
+        polarisation_norm = max([
+            np.linalg.norm(state.polarisation) for state in self.states
+        ])
+        curl_polarisation_norm = max([
+            np.linalg.norm(state.curl_polarisation) for state in self.states
+        ])
 
         animation = matplotlib.animation.FuncAnimation(
             fig,
@@ -183,6 +245,9 @@ class Lattice2D:
                 sample_every * frame,
                 ax,
                 curl_norm=curl_norm,
+                Emax=Emax,
+                pol_norm=polarisation_norm,
+                curl_pol_norm=curl_polarisation_norm,
             ),
             frames=n_frames,
         )
@@ -202,24 +267,32 @@ class Lattice2D:
     def plot_state(self):
         self.plot_current_density(0)
 
-    def get_state(self, state_index: int) -> np.ndarray:
+    def get_state(self, state_index: int) -> LatticeState:
         if self.states is None:
             if state_index:
                 print("Lattice was not evolved, call evolve() first.")
                 return
-            return self.density_matrix
+            return LatticeState(self.density_matrix)
         else:
             return self.states[state_index]
 
     def get_current_density(self, state_matrix: np.ndarray) -> np.ndarray:
         return (self.H_hop * state_matrix.T).imag
 
-    def plot_current_density(self, state_index: int, ax: matplotlib.axes = None, curl_norm: float = 1) -> None:
+    def plot_current_density(self, state_index: int, ax: matplotlib.axes = None, curl_norm: float = 1, Emax: float=1, curl_pol_norm: float = 1, pol_norm: float = 1, auto_normalize: bool = False) -> None:
         show_plot = ax is None
 
-        state_matrix = self.get_state(state_index)
-        current_matrix = self.get_current_density(state_matrix)
-        curl = self.curl(current_matrix)
+        lattice_state = self.get_state(state_index)
+
+        if auto_normalize:
+            curl_norm = max([max(np.abs(list(self.curl(self.get_current_density(state.state)).values()))) for state in self.states])
+            Emax = max([np.abs(self.E(i * self.h)) for i in range(self.steps)])
+            pol_norm = max([
+                np.linalg.norm(state.polarisation) for state in self.states
+            ])
+            curl_pol_norm = max([
+                np.linalg.norm(state.curl_polarisation) for state in self.states
+            ])
 
         if ax is None:
             _, ax = plt.subplots(figsize=(2 * self.Lx + 2, 2 * self.Ly))
@@ -231,7 +304,7 @@ class Lattice2D:
         positions = {(i, j): (j, -i) for i in range(self.Ly) for j in range(self.Lx)}
 
         # Normalize node colors based on diagonal values
-        diag_values = np.real(np.diag(state_matrix))
+        diag_values = np.real(np.diag(lattice_state.state))
         norm = plt.Normalize(vmin=0.0, vmax=1 / self.N / self.occupation_fraction)
         cmap = plt.get_cmap("Greys_r").reversed()
 
@@ -241,8 +314,8 @@ class Lattice2D:
             color_val = cmap(norm(diag_values[idx]))
             circle = plt.Circle((x, y), 0.3, facecolor=color_val, zorder=2, edgecolor="black")
 
-            if idx in curl.keys():
-                curl_val = curl[idx] / curl_norm
+            if idx in lattice_state.curl.keys():
+                curl_val = lattice_state.curl[idx] / curl_norm
                 curl_circle = plt.Circle(
                     (x + 0.5, y - 0.5),
                     0.2,
@@ -276,7 +349,7 @@ class Lattice2D:
             )
 
         # Normalize current values for thickness
-        abs_current = np.abs(current_matrix)
+        abs_current = np.abs(lattice_state.current)
         max_current = np.max(abs_current) if np.max(abs_current) > 0 else 1
 
         # Plot currents as lines between nodes
@@ -286,7 +359,7 @@ class Lattice2D:
                     x1, y1 = positions[u // self.Lx, u % self.Lx]
                     x2, y2 = positions[v // self.Lx, v % self.Lx]
 
-                    current_val = current_matrix[u, v]
+                    current_val = lattice_state.current[u, v]
 
                     linewidth = 3 * abs(current_val) / max_current  # Scale line thickness
                     color = "blue" if current_val > 0 else "red"
@@ -326,12 +399,20 @@ class Lattice2D:
         Emax = max([np.abs(self.E(i * self.h)) for i in range(self.steps)])
         Ey, Ex = 1 / Emax * self.E(state_index * self.h) * self.E_dir
 
-        polarisation = self.polarisation(state_matrix)
-        polarisation_current = self.polarisation_current(state_matrix, self.get_state(state_index - 1) if state_index > 0 else state_matrix)
+        polarisation = self.polarisation(lattice_state.state) / pol_norm
+        polarisation_current = self.polarisation_current(lattice_state.state, self.get_state(state_index - 1).state if state_index > 0 else lattice_state.state) / pol_norm
+
+        curl_polarisation = self.curl_polarisation(lattice_state.curl) / curl_pol_norm
+        curl_polarisation_current = self.curl_polarisation_current(lattice_state.curl, self.curl(self.get_current_density(self.get_state(state_index - 1).state)) if state_index > 0 else lattice_state.curl) / curl_pol_norm
 
         Lattice2D.plot_arrow(ax, arrow_x+0.5, arrow_y, *polarisation, color="black", label="$\\vec P$")
         Lattice2D.plot_arrow(ax, arrow_x+1, arrow_y, *polarisation_current, color="blue", label="$\\frac{\\partial \\vec P}{\\partial t}$")
         Lattice2D.plot_arrow(ax, arrow_x, arrow_y, Ex, Ey, color="red", label="$\\vec E$")
+        Lattice2D.plot_arrow(ax, arrow_x+0.5, arrow_y-2, *curl_polarisation, color="green", label="$\\nabla \\times \\vec J$")
+        Lattice2D.plot_arrow(ax, arrow_x+0.5, arrow_y-3, *curl_polarisation_current, color="orange", label="$\\frac{\\partial}{\\partial t} (\\nabla \\times \\vec J)$")
+        
+        ax.plot(arrow_x+3, 0, alpha=0)
+
 
         # annotate step
         ax.text(
@@ -349,16 +430,30 @@ class Lattice2D:
         if show_plot:
             plt.show()
 
+
     def polarisation(self, state_matrix: np.ndarray) -> np.ndarray:
         return np.sum([
-            np.array([i, j]) * state_matrix.diagonal().real[self.Lx * j + i]
+            (np.array([i, j]) - self.origin) * state_matrix.diagonal().real[self.Lx * j + i]
             for j in range(self.Ly)
             for i in range(self.Lx)
-        ], axis=0) - (np.array([self.Lx, self.Ly]) - 1)/2
+        ], axis=0)
     
+
     def polarisation_current(self, state_matrix: np.ndarray, previous_step_state_matrix: np.ndarray) -> np.ndarray:
         return (self.polarisation(state_matrix) - self.polarisation(previous_step_state_matrix)) / self.h
+
+
+    def curl_polarisation(self, curl_J: np.ndarray) -> np.ndarray:
+        return np.sum([
+            (np.array([site_index % self.Lx, site_index // self.Lx]) - self.curl_origin) * curl_J[site_index]
+            for site_index in curl_J.keys()
+        ], axis=0) 
     
+
+    def curl_polarisation_current(self, curl_J: np.ndarray, previous_curl_J: np.ndarray) -> np.ndarray:
+        return (self.curl_polarisation(curl_J) - self.curl_polarisation(previous_curl_J)) / self.h
+
+
     @staticmethod
     def plot_arrow(ax, x, y, dx, dy, color="black", label=""):
         ax.annotate(
@@ -368,23 +463,32 @@ class Lattice2D:
             arrowprops=dict(arrowstyle="->", color=color, lw=4),
         )
 
-        if label: ax.text(x + 0.2, y, label, fontsize=14, color=color)
+        if label: ax.text(x + 0.2, y+0.2, label, fontsize=14, color=color)
 
-    def curl(self, J: np.ndarray) -> np.ndarray:
-        cell_width = (self.cell_path.flatten() % self.Lx).max()
-        cell_height = (self.cell_path.flatten() // self.Lx).max()
-        curl = dict()
+        # plot transparent dot at arrow end
+        plt.plot(x + dx, y - dy, alpha=0)
+
+
+    def curl(self, J: np.ndarray) -> dict[int: np.float64]:
+        curl = dict[int: np.float64]()
         # curl_row_length = self.L-cell_width
 
-        for i in range(0, self.Ly - cell_height, cell_height):
-            for j in range(0, self.Lx - cell_width, cell_width):
+        for i in range(0, self.Ly - self.cell_height, self.cell_height):
+            for j in range(0, self.Lx - self.cell_width, self.cell_width):
                 site_index = self.Lx * i + j
                 curl[site_index] = sum([J[site_index + di, site_index + dj] for di, dj in self.cell_path])
         return curl
+        
     
-    @property
-    def maximum_curl(self):
-        return max([max(self.curl(self.get_current_density(state)).values()) for state in self.states])
+    def save(self, filename: str) -> None:
+        with open(filename, "wb") as f:
+            pickle.dump(self, f)
+
+    
+    @staticmethod
+    def load(filename: str):
+        with open(filename, "rb") as f:
+            return pickle.load(f)
 
 
 
@@ -401,7 +505,7 @@ class BrickwallLattice(Lattice2D):
             y_hop = np.concatenate([y_hop_row, 1 - y_hop_row] * (self.Ly // 2 - 1) + [y_hop_row])
         else:
             y_hop = np.tile([0, 1], (self.Ly-1)*self.Lx//2)
-            y_hop = np.concatenate([y_hop, [0] * (1- self.Ly % 2)])
+            y_hop = np.concatenate([y_hop, [0] * (1 - self.Ly % 2)])
         
         erase_positions = np.diag(y_hop, self.Lx) + np.diag(y_hop, -self.Lx)
         return 1-erase_positions
@@ -411,13 +515,11 @@ class BrickwallLattice(Lattice2D):
         return super().create_hopping_hamiltonian() * self.get_brickwall_lattice_sites()
     
     def curl(self, J: np.ndarray) -> np.ndarray:
-        cell_width = (self.cell_path.flatten() % self.Lx).max()
-        cell_height = (self.cell_path.flatten() // self.Lx).max()
         curl = dict()
         # curl_row_length = self.L-cell_width
 
-        for i in range(0, self.Ly - cell_height, cell_height):
-            for j in range(i%2, self.Lx - cell_width, cell_width):
+        for i in range(0, self.Ly - self.cell_height, self.cell_height):
+            for j in range(i%2, self.Lx - self.cell_width, self.cell_width):
                 site_index = self.Lx * i + j
                 curl[site_index] = sum([J[site_index + di, site_index + dj] for di, dj in self.cell_path])
         return curl
