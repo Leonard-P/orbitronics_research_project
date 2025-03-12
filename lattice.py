@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 
 @dataclass
 class LatticeState:
-    state: NDArray[np.complex64]
+    density: NDArray[np.complex64]
     current: NDArray[np.float64]
     polarisation: NDArray[np.float64]
     curl: NDArray[np.float64]
@@ -48,8 +48,6 @@ class Lattice2D:
         self.t_hop = t_hop
         self.t = 0  # time
         self.cell_path = np.array([(0, 1), (1, self.Lx + 1), (self.Lx + 1, self.Lx), (self.Lx, 0)])  # path around a cell for curl calculation
-        print(self.cell_height)
-        print(self.cell_width)
 
         if callable(E_amplitude):
             self.E = E_amplitude
@@ -217,7 +215,7 @@ class Lattice2D:
         curl = self.curl(current_matrix)
         curl_polarisation = self.curl_polarisation(curl)
         return LatticeState(
-            state=state_matrix,
+            density=state_matrix,
             current=current_matrix,
             polarisation=polarisation,
             curl=curl,
@@ -230,7 +228,7 @@ class Lattice2D:
 
         n_frames = len(self.states) // sample_every
 
-        curl_norm = max([max(np.abs(list(self.curl(self.get_current_density(state.state)).values()))) for state in self.states])
+        curl_norm = max([max(np.abs(list(self.curl(self.get_current_density(state.density)).values()))) for state in self.states])
         Emax = max([np.abs(self.E(i * self.h)) for i in range(self.steps)])
         polarisation_norm = max([
             np.linalg.norm(state.polarisation) for state in self.states
@@ -285,7 +283,7 @@ class Lattice2D:
         lattice_state = self.get_state(state_index)
 
         if auto_normalize:
-            curl_norm = max([max(np.abs(list(self.curl(self.get_current_density(state.state)).values()))) for state in self.states])
+            curl_norm = max([max(np.abs(list(self.curl(self.get_current_density(state.density)).values()))) for state in self.states])
             Emax = max([np.abs(self.E(i * self.h)) for i in range(self.steps)])
             pol_norm = max([
                 np.linalg.norm(state.polarisation) for state in self.states
@@ -304,7 +302,7 @@ class Lattice2D:
         positions = {(i, j): (j, -i) for i in range(self.Ly) for j in range(self.Lx)}
 
         # Normalize node colors based on diagonal values
-        diag_values = np.real(np.diag(lattice_state.state))
+        diag_values = np.real(np.diag(lattice_state.density))
         norm = plt.Normalize(vmin=0.0, vmax=1 / self.N / self.occupation_fraction)
         cmap = plt.get_cmap("Greys_r").reversed()
 
@@ -399,11 +397,11 @@ class Lattice2D:
         Emax = max([np.abs(self.E(i * self.h)) for i in range(self.steps)])
         Ey, Ex = 1 / Emax * self.E(state_index * self.h) * self.E_dir
 
-        polarisation = self.polarisation(lattice_state.state) / pol_norm
-        polarisation_current = self.polarisation_current(lattice_state.state, self.get_state(state_index - 1).state if state_index > 0 else lattice_state.state) / pol_norm
+        polarisation = self.polarisation(lattice_state.density) / pol_norm
+        polarisation_current = self.polarisation_current(lattice_state.density, self.get_state(state_index - 1).density if state_index > 0 else lattice_state.density) / pol_norm
 
         curl_polarisation = self.curl_polarisation(lattice_state.curl) / curl_pol_norm
-        curl_polarisation_current = self.curl_polarisation_current(lattice_state.curl, self.curl(self.get_current_density(self.get_state(state_index - 1).state)) if state_index > 0 else lattice_state.curl) / curl_pol_norm
+        curl_polarisation_current = self.curl_polarisation_current(lattice_state.curl, self.curl(self.get_current_density(self.get_state(state_index - 1).density)) if state_index > 0 else lattice_state.curl) / curl_pol_norm
 
         Lattice2D.plot_arrow(ax, arrow_x+0.5, arrow_y, *polarisation, color="black", label="$\\vec P$")
         Lattice2D.plot_arrow(ax, arrow_x+1, arrow_y, *polarisation_current, color="blue", label="$\\frac{\\partial \\vec P}{\\partial t}$")
