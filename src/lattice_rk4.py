@@ -1,6 +1,5 @@
 import warnings
 import numpy as np
-import scipy.linalg as la
 from scipy import sparse
 from typing import Callable, List, Optional, Union
 from tqdm import trange
@@ -28,23 +27,21 @@ def time_evolution_derivative(
     decay_time (float): Decay time constant. Default is infinity (no decay).
 
     Returns:
-    np.ndarray: The time derivative of the density matrix.
+    np.ndarray: The time derivative of the density matrix. ∂ρ/∂t = -i[H, ρ] + (ρ₀ - ρ) / τ
     """
 
     # Calculate the time-dependent Hamiltonian
-    H_t = H_hop + field_amplitude(t) * H_onsite
+    H = H_hop + field_amplitude(t) * H_onsite
 
     # Calculate the commutator of H_t and D
-    commutator = H_t @ density_matrix - density_matrix @ H_t
+    commutator = H @ density_matrix - density_matrix @ H
 
     # Calculate the decay term
     if decay_time != float("inf") and initial_density is not None:
         decay_term = (initial_density - density_matrix) / decay_time
-        D_derivative = -1j * commutator + decay_term
-    else:
-        D_derivative = -1j * commutator
+        return -1j * commutator + decay_term
 
-    return D_derivative
+    return -1j * commutator
 
 
 def rk4_step(
@@ -111,7 +108,7 @@ def evolve_density_matrix_rk4(
     dt (float): Time step.
     total_time (float): Total simulation time.
     decay_time (float): Decay time constant. Default is infinity (no decay).
-    store_steps (int): Store every n-th step. Default is 1 (store all steps).
+    sample_every (int): Store every n-th step. Default is 1 (store all steps). 0 will store only the final state.
     use_sparse (bool): Use sparse matrices for computation. Default is True.
 
     Returns:
@@ -125,14 +122,13 @@ def evolve_density_matrix_rk4(
         H_onsite = sparse.csr_matrix(H_onsite)
 
     D_t = initial_density.copy()
-    result.append(D_t.copy())
 
     for step in trange(n_steps):
-        t = step * dt
-
-        D_t = rk4_step(t, D_t, H_hop, H_onsite, field_amplitude, dt, initial_density, decay_time)
-
-        if (step + 1) % sample_every == 0:
+        if sample_every and (step % sample_every == 0):
             result.append(D_t.copy())
 
+        t = step * dt
+        D_t = rk4_step(t, D_t, H_hop, H_onsite, field_amplitude, dt, initial_density, decay_time)
+
+    result.append(D_t.copy())
     return result
