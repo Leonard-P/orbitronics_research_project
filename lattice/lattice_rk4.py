@@ -1,15 +1,16 @@
-import warnings
+from typing import Callable, List, Optional, Union
 import numpy as np
 from scipy import sparse
-from typing import Callable, List, Optional, Union
 from tqdm import trange
+
+Matrix = Union[np.ndarray, sparse.spmatrix]
 
 
 def time_evolution_derivative(
     t: float,
     density_matrix: np.ndarray,
-    H_hop: np.ndarray,
-    H_onsite: np.ndarray,
+    H_hop: Matrix,
+    H_onsite: Matrix,
     field_amplitude: Callable[[float], float],
     initial_density: Optional[np.ndarray] = None,
     decay_time: float = float("inf"),
@@ -17,26 +18,34 @@ def time_evolution_derivative(
     """
     Calculate the time derivative of the density matrix.
 
+    ∂ρ/∂t = -i[H, ρ] + (ρ₀ - ρ) / τ
+
     Parameters:
-    t (float): Time.
-    density_matrix (np.ndarray): Density matrix at time t.
-    H_hop (np.ndarray): Hopping Hamiltonian.
-    H_onsite (np.ndarray): On-site potential Hamiltonian.
-    field_amplitude (Union[float, Callable]): Field amplitude (scalar or function of time).
-    initial_density (np.ndarray, optional): Initial density matrix for decay term.
-    decay_time (float): Decay time constant. Default is infinity (no decay).
+      t: Current time.
+      density_matrix: Density matrix ρ(t) (dense).
+      H_hop: Hopping Hamiltonian (dense or sparse).
+      H_onsite: On-site potential Hamiltonian (dense or sparse).
+      field_amplitude: Field amplitude (function of time).
+      initial_density: Initial density matrix ρ₀ (dense), used for decay term.
+      decay_time: Decay time constant τ. Default is infinity (no decay).
 
     Returns:
-    np.ndarray: The time derivative of the density matrix. ∂ρ/∂t = -i[H, ρ] + (ρ₀ - ρ) / τ
+      The time derivative of the density matrix (dense ndarray).
     """
 
     # Calculate the time-dependent Hamiltonian
     H = H_hop + field_amplitude(t) * H_onsite
 
-    # Calculate the commutator of H_t and D
-    commutator = H @ density_matrix - density_matrix @ H
+    # Calculate [H, ρ]
+    if sparse.issparse(H):
+        # print(sparse.issparse(density_matrix.dot(H)), "dens.dot(H)")
+        # print(sparse.issparse(H.dot(density_matrix)), "H.dot(dens)")
+        # commutator = H.dot(density_matrix) - density_matrix.dot(H)
+        commutator = H.dot(density_matrix) - sparse.csr_matrix.dot(density_matrix, H)
+    else:
+        # "explicitly" use np.matmul for dense arrays
+        commutator = H @ density_matrix - density_matrix @ H
 
-    # Calculate the decay term
     if decay_time != float("inf") and initial_density is not None:
         decay_term = (initial_density - density_matrix) / decay_time
         return -1j * commutator + decay_term
@@ -58,24 +67,21 @@ def rk4_step(
     Perform a single Runge-Kutta 4th order step to evolve the density matrix.
 
     Parameters:
-    t (float): Current time.
-    density_matrix (np.ndarray): Density matrix at time t.
-    H_hop (np.ndarray): Hopping Hamiltonian.
-    H_onsite (np.ndarray): On-site potential Hamiltonian.
-    field_amplitude (Union[float, Callable]): Field amplitude (scalar or function of time).
-    dt (float): Time step.
-    initial_density (np.ndarray, optional): Initial density matrix for decay term.
-    decay_time (float): Decay time constant. Default is infinity (no decay).
+      t: Current time.
+      density_matrix: Density matrix ρ(t) (dense).
+      H_hop: Hopping Hamiltonian (dense or sparse).
+      H_onsite: On-site potential Hamiltonian (dense or sparse).
+      field_amplitude: Field amplitude as a callable.
+      dt: Time step.
+      initial_density: Initial density matrix for the decay term.
+      decay_time: Decay time constant τ.
 
     Returns:
-    np.ndarray: The density matrix after one RK4 step.
+      The density matrix after one RK4 step (dense ndarray).
     """
     k1 = dt * time_evolution_derivative(t, density_matrix, H_hop, H_onsite, field_amplitude, initial_density, decay_time)
-
     k2 = dt * time_evolution_derivative(t + 0.5 * dt, density_matrix + 0.5 * k1, H_hop, H_onsite, field_amplitude, initial_density, decay_time)
-
     k3 = dt * time_evolution_derivative(t + 0.5 * dt, density_matrix + 0.5 * k2, H_hop, H_onsite, field_amplitude, initial_density, decay_time)
-
     k4 = dt * time_evolution_derivative(t + dt, density_matrix + k3, H_hop, H_onsite, field_amplitude, initial_density, decay_time)
 
     D_next = density_matrix + (1.0 / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
@@ -98,24 +104,24 @@ def evolve_density_matrix_rk4(
     use_sparse: bool = True,
 ) -> List[np.ndarray]:
     """
-    Evolve the density matrix using RK4 method.
+    Evolve the density matrix using the RK4 method.
 
     Parameters:
-    H_hop (np.ndarray): Hopping Hamiltonian.
-    H_onsite (np.ndarray): On-site potential Hamiltonian.
-    initial_density (np.ndarray): Initial density matrix.
-    field_amplitude (Union[float, Callable]): Electric field amplitude or function of time.
-    dt (float): Time step.
-    total_time (float): Total simulation time.
-    decay_time (float): Decay time constant. Default is infinity (no decay).
-    sample_every (int): Store every n-th step. Default is 1 (store all steps). 0 will store only the final state.
-    use_sparse (bool): Use sparse matrices for computation. Default is True.
+      H_hop: Hopping Hamiltonian (dense ndarray). Will be converted to sparse if use_sparse is True.
+      H_onsite: On-site potential Hamiltonian (dense ndarray). Converted similarly.
+      initial_density: Initial density matrix ρ₀ (dense ndarray).
+      field_amplitude: Field amplitude as a callable.
+      dt: Time step.
+      total_time: Total simulation time.
+      decay_time: Decay time constant τ.
+      sample_every: Store every n-th step (if 0, only the final state is stored).
+      use_sparse: If True, convert Hamiltonians to sparse matrices for multiplication efficiency.
 
     Returns:
-    List[np.ndarray]: List of density matrices at each stored time step.
+      A list of density matrices (dense ndarrays) at each stored time step.
     """
     n_steps = int(total_time / dt)
-    result = []
+    result: List[np.ndarray] = []
 
     if use_sparse:
         H_hop = sparse.csr_matrix(H_hop)

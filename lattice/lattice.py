@@ -35,6 +35,7 @@ class SimulationParameters:
     T: float
     charge: int = 1
     initial_occupation: float = 0.5
+    sample_every: int = 1
 
     @property
     def simulation_n_steps(self):
@@ -141,6 +142,8 @@ class Lattice2D:
             self.states = [self.compute_lattice_state(state.data_as(format="ndarray")) for state in sim.states]
         elif solver == "rk4":
             sim = rk4.evolve_density_matrix_rk4(self.H_hop, self.H_onsite, self.density_matrix, self.E, self.h, self.simulation_parameters.T, **solver_kwargs)
+            if solver_kwargs.get("sample_every", 1) != 1:
+                self.simulation_parameters.h = self.h * solver_kwargs["sample_every"]
             self.states = [self.compute_lattice_state(state) for state in sim]
 
     def compute_lattice_state(self, density_matrix: np.ndarray) -> LatticeState:
@@ -156,6 +159,7 @@ class Lattice2D:
             polarisation=polarisation,
             curl=curl,
             curl_polarisation=curl_polarisation,
+
         )
 
     def _current_density(self, state_matrix: np.ndarray) -> np.ndarray:

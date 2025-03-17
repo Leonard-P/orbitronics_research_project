@@ -30,6 +30,10 @@ class LatticeGeometry(ABC):
     @abstractmethod
     def get_hopping_matrix(self) -> np.ndarray:
         """Matrix defining hopping energies between sites"""
+    
+    @abstractmethod
+    def gradient(self, f: np.ndarray) -> np.ndarray:
+        """Calculate the gradient of a scalar field"""
 
 
 class RectangularLatticeGeometry(LatticeGeometry):
@@ -50,6 +54,7 @@ class RectangularLatticeGeometry(LatticeGeometry):
     def get_curl_sites(self) -> List[int]:
         return [i * self.Lx + j for i in range(self.Ly - self.cell_height) for j in range(self.Lx - self.cell_width)]
 
+    def gradient(self, f: np.ndarray, axis: int) -> np.ndarray:
 
 class SquareLatticeGeometry(RectangularLatticeGeometry):
     """RectangularLatticeGeometry with Lx = Ly"""
