@@ -30,10 +30,10 @@ class LatticeGeometry(ABC):
     @abstractmethod
     def get_hopping_matrix(self) -> np.ndarray:
         """Matrix defining hopping energies between sites"""
-    
+
     @abstractmethod
-    def gradient(self, f: np.ndarray) -> np.ndarray:
-        """Calculate the gradient of a scalar field"""
+    def cell_field_gradient(self, f: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+        """Calculate the gradient of a scalar field evaluated at each unit cell"""
 
 
 class RectangularLatticeGeometry(LatticeGeometry):
@@ -54,7 +54,11 @@ class RectangularLatticeGeometry(LatticeGeometry):
     def get_curl_sites(self) -> List[int]:
         return [i * self.Lx + j for i in range(self.Ly - self.cell_height) for j in range(self.Lx - self.cell_width)]
 
-    def gradient(self, f: np.ndarray, axis: int) -> np.ndarray:
+    def cell_field_gradient(self, f: dict[int, float]) -> dict[int, Tuple[float, float]]:
+        field_array = np.array([[f.get(self.position_to_site(x, y), 0) for x in range((self.Lx - 1))] for y in range(self.Ly - 1)])
+        grad = np.gradient(field_array)
+        return {self.position_to_site(x, y): (grad[1][y, x], grad[0][y, x]) for y in range(self.Ly - 1) for x in range(self.Lx - 1)}
+
 
 class SquareLatticeGeometry(RectangularLatticeGeometry):
     """RectangularLatticeGeometry with Lx = Ly"""
@@ -89,3 +93,54 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
             for i in range(0, self.Ly - self.cell_height, self.cell_height)
             for j in range(i % 2, self.Lx - self.cell_width, self.cell_width)
         ]
+
+    def cell_field_gradient(self, f: dict[int, float]) -> dict[int, np.ndarray]:
+        """
+        Compute gradient (df/dx, df/dy) for brickwall lattice point (x, y).
+
+        Parameters:
+        x, y      : Coordinates of the target point
+        f         : Dictionary mapping site indices -> f(xi, yi)
+
+        Returns:
+        dict[int, np.ndarray]: Estimated Cartesian gradients at each cell site
+        """
+
+        grad: dict[int, np.ndarray] = {}
+        for site in self.get_curl_sites():
+            x, y = self.site_to_position(site)
+
+            f_site = f.get(site, None)
+
+            # get nearest neighbors
+            f_right = f.get(self.position_to_site(x + 2, y), None)
+            f_left = f.get(self.position_to_site(x - 2, y), None)
+            f_ur = f.get(self.position_to_site(x + 1, y + 1), None)
+            f_ll = f.get((x - 1, y - 1), None)
+
+            # Compute central differences
+            if f_right is not None and f_left is not None:
+                df_da1 = (f_right - f_left) / 4
+            else:
+                if f_right is not None:
+                    df_da1 = (f_right - f_site) / 2
+                elif f_left is not None:
+                    df_da1 = (f_site - f_left) / 2
+                else:
+                    df_da1 = 0
+
+            if f_ur is not None and f_ll is not None:
+                df_da2 = (f_ur - f_ll) / (2 * np.sqrt(2))
+            else:
+                if f_ur is not None:
+                    df_da2 = (f_ur - f_site) / np.sqrt(2)
+                elif f_ll is not None:
+                    df_da2 = (f_site - f_ll) / np.sqrt(2)
+                else:
+                    df_da2 = 0
+
+            # Convert to Cartesian coordinates with J = {{0.5, -0.5}, {0, 1}}
+            J = np.array([[0.5, -0.5], [0, 1]])
+            grad[site] = J @ np.array([df_da1, df_da2])
+
+        return grad

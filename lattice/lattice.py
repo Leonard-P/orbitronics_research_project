@@ -1,7 +1,7 @@
+from typing import Tuple, Union, Callable, Optional, Dict
 import warnings
 import pickle
 from dataclasses import dataclass
-from typing import List, Tuple, Union, Callable, Optional, Dict
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
@@ -9,7 +9,7 @@ import qutip as qu
 from scipy import linalg
 from tqdm import tqdm
 from numpy.typing import NDArray
-from .lattice_geometry import LatticeGeometry, RectangularLatticeGeometry, SquareLatticeGeometry, BrickwallLatticeGeometry
+from .lattice_geometry import LatticeGeometry, BrickwallLatticeGeometry
 from . import lattice_utils as utils
 from . import lattice_rk4 as rk4
 
@@ -131,7 +131,7 @@ class Lattice2D:
         if self.states is not None and not force_reevolve:
             print("Lattice was already evolved, call with force_reevolve=True to simulate again.")
             return
-        
+
         if solver == "qutip":
             H = [qu.Qobj(self.H_hop), [qu.Qobj(self.H_onsite), self.E]]
             rho = qu.Qobj(self.density_matrix)
@@ -141,7 +141,9 @@ class Lattice2D:
             # Compute all derived quantities for each time step
             self.states = [self.compute_lattice_state(state.data_as(format="ndarray")) for state in sim.states]
         elif solver == "rk4":
-            sim = rk4.evolve_density_matrix_rk4(self.H_hop, self.H_onsite, self.density_matrix, self.E, self.h, self.simulation_parameters.T, **solver_kwargs)
+            sim = rk4.evolve_density_matrix_rk4(
+                self.H_hop, self.H_onsite, self.density_matrix, self.E, self.h, self.simulation_parameters.T, **solver_kwargs
+            )
             if solver_kwargs.get("sample_every", 1) != 1:
                 self.simulation_parameters.h = self.h * solver_kwargs["sample_every"]
             self.states = [self.compute_lattice_state(state) for state in sim]
@@ -159,7 +161,6 @@ class Lattice2D:
             polarisation=polarisation,
             curl=curl,
             curl_polarisation=curl_polarisation,
-
         )
 
     def _current_density(self, state_matrix: np.ndarray) -> np.ndarray:
@@ -304,6 +305,127 @@ class Lattice2D:
         utils.plot_site_connections(self.H_hop, self.Lx, self.Ly, ax, max_flow=self.t_hop, plot_flow_direction_arrows=False)
         plt.tight_layout()
         plt.show()
+
+    def plot_field_and_gradient(
+        self,
+        field: dict,
+        gradient: dict,
+        label: str = "",
+        field_cmap: str = "bwr_r",
+        arrow_color: str = "black",
+        arrow_scale: float = 1,
+        ax: Optional[matplotlib.axes] = None,
+    ) -> matplotlib.axes:
+        """Plot a scalar field and its gradient on a lattice."""
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(2 * self.Lx, 2 * self.Ly))
+        else:
+            ax.clear()
+            fig = ax.figure
+
+        field_array = np.empty(self.Lx * self.Ly)
+        field_array.fill(np.nan)
+        for idx, val in field.items():
+            field_array[idx] = val
+
+        max_grad = max(np.linalg.norm(grad) for grad in gradient.values())
+        site_norm = np.nanmax(np.abs(field_array))
+        if site_norm < 1e-12:
+            site_norm = 1
+        utils.plot_site_grid(field_array / site_norm, self.Lx, self.Ly, ax, cmap_name=field_cmap)
+
+        for idx, grad in gradient.items():
+            x, y = idx % self.Lx, idx // self.Lx
+            dx, dy = grad * arrow_scale / max_grad if max_grad > 0 else grad * arrow_scale
+
+            ax.arrow(x, y, dx, dy, head_width=0.1, head_length=0.15, fc=arrow_color, ec=arrow_color, width=0.02, zorder=2, length_includes_head=True)
+
+        # Plot transparent dots to extend boundaries
+        ax.plot(-1, -1, alpha=0)
+        ax.plot(self.Lx//self.geometry.cell_width, -1, alpha=0)
+        ax.plot(self.Lx//self.geometry.cell_width, self.Ly//self.geometry.cell_height, alpha=0)
+
+
+        # Plot avg gradient on the right side
+        avg_grad = arrow_scale * np.mean(list(gradient.values()), axis=0)
+        if max_grad:
+            avg_grad /= max_grad
+        utils.plot_arrow(
+            ax, self.Lx - self.geometry.cell_width + 0.5, self.Ly / 2, *avg_grad, color=arrow_color, label=f"$\\langle {label} \\rangle$"
+        )
+
+        ax.set_aspect("equal")
+        ax.set_axis_off()
+        fig.tight_layout()
+
+        return ax
+
+    def plot_combined_current_and_curl(self, state_index: int = 0) -> Tuple[matplotlib.axes, matplotlib.axes]:
+        """Create a combined plot with current density on the left and curl+gradient on the right"""
+        if self.states is None:
+            state = self.compute_lattice_state(self.density_matrix)
+        else:
+            state = self.states[state_index]
+
+        # Create figure with two subplots
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(4 * self.Lx, 2 * self.Ly), width_ratios=[4, 2])
+
+        # Left plot: current density
+        self.plot_current_density(state_index, ax=ax1)
+        ax1.set_title("Current Density")
+
+        # Right plot: curl and gradient
+        curl = state.curl
+        grad = self.geometry.cell_field_gradient(curl)
+
+        # Use the plot_field_and_gradient function
+        self.plot_field_and_gradient(curl, grad, label="\\nabla \\times \\mathbf{J}", ax=ax2)
+
+        ax2.set_title("Curl and Gradient")
+        return ax1, ax2
+
+    def save_lattice_animation(self, filename, sample_every=1, **save_kwargs):
+        """Save an animation with current density plot on the left and curl+gradient on the right"""
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(4 * self.Lx, 2 * self.Ly), width_ratios=[2, 3])
+
+        def update(frame):
+            ax1.clear()
+            ax2.clear()
+
+            idx = frame * sample_every
+            if idx >= len(self.states):
+                idx = len(self.states) - 1
+
+            # Plot current density on left
+            self.plot_current_density(idx, ax=ax1)
+            ax1.set_title(f"Current Density")
+
+            # Plot curl and gradient on right
+            state = self.states[idx]
+            curl = state.curl
+            grad = self.geometry.cell_field_gradient(curl)
+
+            self.plot_field_and_gradient(
+                curl, grad, label="\\nabla(\\nabla \\times \\mathbf{J})_\\perp", field_cmap="bwr_r", arrow_color="black", arrow_scale=1, ax=ax2
+            )
+
+            ax2.set_title(f"Curl and Gradient")
+            return ax1, ax2
+
+        frames = len(self.states) // sample_every
+        if len(self.states) % sample_every != 0:
+            frames += 1
+
+        progress_bar = tqdm(total=frames, desc="Generating animation", unit="frame")
+
+        def update_progress(current_frame, _):
+            # Reset the position each time to avoid empty lines
+            progress_bar.n = current_frame + 1
+            progress_bar.refresh()
+
+        anim = matplotlib.animation.FuncAnimation(fig, update, frames=frames, blit=False)
+        anim.save(filename, progress_callback=update_progress, **save_kwargs)
+        plt.close(fig)
 
     def save_current_density_animation(self, filename: str, sample_every: int = 1, curl_norm: float = 1, **save_format_kwargs) -> None:
         curl_norm = max([max(np.abs(list(self._curl(self._current_density(state.density)).values()))) for state in self.states])

@@ -6,12 +6,15 @@ import matplotlib
 
 
 def plot_arrow(ax: matplotlib.axis, x: float, y: float, dx: float, dy: float, color: str = "black", label: str = ""):
-    ax.annotate(
-        "",
-        xy=(x + dx, y + dy),
-        xytext=(x, y),
-        arrowprops=dict(arrowstyle="->", color=color, lw=4),
-    )
+    # ax.annotate(
+    #     "",
+    #     xy=(x + dx, y + dy),
+    #     xytext=(x, y),
+    #     arrowprops=dict(arrowstyle="->", color=color, lw=4),
+    # )
+
+    ax.arrow(x, y, dx, dy, head_width=0.1, head_length=0.15, 
+                fc=color, ec=color, width=0.02, zorder=4, length_includes_head=True)
 
     if label:
         ax.text(x + 0.2, y + 0.2, label, fontsize=14, color=color)
@@ -21,25 +24,31 @@ def plot_arrow(ax: matplotlib.axis, x: float, y: float, dx: float, dy: float, co
 
 
 def plot_site_grid(
-    site_values: np.ndarray, Lx: int, Ly: int, ax: matplotlib.axis = None, 
-    vmin: float = None, vmax: float = None, cmap_name: str = "inferno"
+    site_values: np.ndarray,
+    Lx: int,
+    Ly: int,
+    ax: matplotlib.axis = None,
+    vmin: float = None,
+    vmax: float = None,
+    cmap_name: str = "inferno",
 ) -> matplotlib.axis:
     """Plot grid sites with values as colored circles."""
     external_axis = ax is not None
     if not external_axis:
         _, ax = plt.subplots(figsize=(2 * Lx, 2 * Ly))
 
-    norm = plt.Normalize(vmin=vmin if vmin is not None else site_values.min(), 
-                        vmax=vmax if vmax is not None else site_values.max())
+    norm = plt.Normalize(vmin=vmin if vmin is not None else np.nanmin(site_values), vmax=vmax if vmax is not None else np.nanmax(site_values))
     cmap = plt.get_cmap(cmap_name)
 
     # Plot nodes with their diagonal values.
     for idx, val in enumerate(site_values):
+        if np.isnan(val):
+            continue
         x, y = idx % Lx, idx // Lx
         color_val = complex(norm(val)).real
         circle_color = cmap(color_val)
         circle = plt.Circle((x, y), 0.3, facecolor=circle_color, edgecolor="black", zorder=2)
-        
+
         ax.add_patch(circle)
         plt.plot(x, y, alpha=0)
 
@@ -59,13 +68,17 @@ def plot_site_grid(
     ax.axis("off")
     if not external_axis:
         plt.show()
-    
+
     return ax
 
 
 def plot_site_connections(
-    connection_matrix: np.ndarray, Lx: int, Ly: int, ax: matplotlib.axis = None,
-    max_flow: float = 1, label_connection_strength: bool = True,
+    connection_matrix: np.ndarray,
+    Lx: int,
+    Ly: int,
+    ax: matplotlib.axis = None,
+    max_flow: float = 1,
+    label_connection_strength: bool = True,
     plot_flow_direction_arrows: bool = True,
 ) -> matplotlib.axis:
     """Plot connections between sites with arrows showing flow direction."""
@@ -83,7 +96,7 @@ def plot_site_connections(
 
             linewidth = 2 * abs(J) / max_flow
             color = "red" if J < 0 else "blue"
-            ax.plot([x1, x2], [y1, y2], "-", color=color, linewidth=5*linewidth, zorder=1, alpha=0.3 if plot_flow_direction_arrows else 1)
+            ax.plot([x1, x2], [y1, y2], "-", color=color, linewidth=5 * linewidth, zorder=1, alpha=0.3 if plot_flow_direction_arrows else 1)
 
             if label_connection_strength:
                 xm, ym = (x1 + x2) / 2, (y1 + y2) / 2
@@ -126,11 +139,11 @@ if __name__ == "__main__":
     grid_values = np.random.rand(25)
     conn_matrix = np.zeros((25, 25))
     for i in range(24):
-        conn_matrix[i, i+1] = np.random.rand() - 0.5
+        conn_matrix[i, i + 1] = np.random.rand() - 0.5
 
     fig, ax = plt.subplots(figsize=(10, 10))
     plot_site_grid(grid_values, 5, 5, ax)
     plot_site_connections(conn_matrix, 5, 5, ax)
-    
+
     plt.tight_layout()
     plt.show()
