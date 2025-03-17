@@ -1,5 +1,10 @@
 /literature
 /prl_orbital_current_sim
 /orbitronics
-/__pycache__
-*.lattice
+
+# Ignore any __pycache__ folder recursively
+**/__pycache__/
+
+# Ignore Python bytecode and compiled files
+*.py[cod]
+*$py.class
