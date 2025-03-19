@@ -113,19 +113,19 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
             f_site = f.get(site, None)
 
             # get nearest neighbors
-            f_right = f.get(self.position_to_site(x + 2, y), None)
-            f_left = f.get(self.position_to_site(x - 2, y), None)
+            f_lr = f.get(self.position_to_site(x + 1, y - 1), None)
+            f_ul = f.get(self.position_to_site(x - 1, y + 1), None)
             f_ur = f.get(self.position_to_site(x + 1, y + 1), None)
-            f_ll = f.get((x - 1, y - 1), None)
+            f_ll = f.get(self.position_to_site(x - 1, y - 1), None)
 
             # Compute central differences
-            if f_right is not None and f_left is not None:
-                df_da1 = (f_right - f_left) / 4
+            if f_lr is not None and f_ul is not None:
+                df_da1 = (f_ul - f_lr) / (2*np.sqrt(2))
             else:
-                if f_right is not None:
-                    df_da1 = (f_right - f_site) / 2
-                elif f_left is not None:
-                    df_da1 = (f_site - f_left) / 2
+                if f_lr is not None:
+                    df_da1 = (f_site - f_lr) / np.sqrt(2)
+                elif f_ul is not None:
+                    df_da1 = (f_ul - f_site) / np.sqrt(2)
                 else:
                     df_da1 = 0
 
@@ -139,8 +139,9 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
                 else:
                     df_da2 = 0
 
-            # Convert to Cartesian coordinates with J = {{0.5, -0.5}, {0, 1}}
-            J = np.array([[0.5, -0.5], [0, 1]])
-            grad[site] = J @ np.array([df_da1, df_da2])
+            # Convert to Cartesian coordinates with Jacobian. Should be equivalent of rotating by 45 degrees and normalizing by sqrt(2)
+            # TODO: check if above normalization is correct or if extra factors are present
+            J = np.array([[1, -1], [1, 1]])
+            grad[site] = J @ np.array([df_da2, df_da1])
 
         return grad

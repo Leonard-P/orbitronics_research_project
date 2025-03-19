@@ -33,7 +33,7 @@ class SimulationParameters:
     E_direction: np.ndarray
     h: float
     T: float
-    charge: int = 1
+    charge: int = 1 # TODO: Implement charge
     initial_occupation: float = 0.5
     sample_every: int = 1
 
@@ -152,8 +152,8 @@ class Lattice2D:
         """Compute all derived quantities from the density matrix"""
         current_matrix = self._current_density(density_matrix)
         polarisation = self._polarisation(density_matrix)
-        curl = self._curl(current_matrix)
-        curl_polarisation = self._curl_polarisation(curl)
+        curl = self._orbital_charges(current_matrix)
+        curl_polarisation = self._orbital_polarisation(curl)
 
         return LatticeState(
             density=density_matrix,
@@ -165,15 +165,15 @@ class Lattice2D:
 
     def _current_density(self, state_matrix: np.ndarray) -> np.ndarray:
         """Calculate current density from the density matrix"""
-        return 2 * (self.H_hop * state_matrix.T).imag  # [J] = e/[t] = h_bar e/t_hop
+        return -2 * (self.H_hop * state_matrix.T).imag  # [J] = e/[t] = h_bar e/t_hop
 
-    def _curl(self, J: np.ndarray) -> Dict[int, float]:
+    def _orbital_charges(self, J: np.ndarray) -> Dict[int, float]:
         """Calculate curl around each unit cell using the geometry's curl sites"""
         cell_area = self.geometry.cell_width * self.geometry.cell_height
         return {
-            site_idx: sum([J[site_idx + di, site_idx + dj] for di, dj in self.geometry.cell_path]) / cell_area
+            site_idx: sum([J[site_idx + di, site_idx + dj] for di, dj in self.geometry.cell_path]) / self.t_hop
             for site_idx in self.geometry.get_curl_sites()
-        }  # [curl J] = [J]/a**2 = h_bar e/a**2 t_hop
+        }  # [q_orb] = e
 
     def _polarisation(self, state_matrix: np.ndarray) -> np.ndarray:
         """Calculate polarization from density matrix"""
@@ -182,19 +182,18 @@ class Lattice2D:
             / self.N
         )  # [P] = e*a/a**2 = e/a
 
-    def _curl_polarisation(self, curl_J: Dict[int, float]) -> np.ndarray:
-        """Calculate curl of polarization"""
-        return np.sum(
+    def _orbital_polarisation(self, curl_J: Dict[int, float]) -> np.ndarray:
+        return 1 / self.N * np.sum(
             [(np.array(self.geometry.site_to_position(site_index)) - self.curl_origin) * curl_val for site_index, curl_val in curl_J.items()], axis=0
-        )
+        ) # [P_orb] = e/a
 
     def _polarisation_current(self, state_matrix: np.ndarray, previous_step_state_matrix: np.ndarray) -> np.ndarray:
         """Calculate time derivative of polarization"""
         return (self._polarisation(state_matrix) - self._polarisation(previous_step_state_matrix)) / self.h
 
-    def _curl_polarisation_current(self, curl_J: Dict[int, float], previous_curl_J: Dict[int, float]) -> np.ndarray:
+    def _orbital_polarisation_current(self, curl_J: Dict[int, float], previous_curl_J: Dict[int, float]) -> np.ndarray:
         """Calculate time derivative of curl polarization"""
-        return (self._curl_polarisation(curl_J) - self._curl_polarisation(previous_curl_J)) / self.h
+        return (self._orbital_polarisation(curl_J) - self._orbital_polarisation(previous_curl_J)) / self.h
 
     def plot_current_density(
         self,
@@ -251,11 +250,11 @@ class Lattice2D:
             / pol_norm
         )
 
-        curl_polarisation = self._curl_polarisation(lattice_state.curl) / curl_pol_norm
+        curl_polarisation = self._orbital_polarisation(lattice_state.curl) / curl_pol_norm
         curl_polarisation_current = (
-            self._curl_polarisation_current(
+            self._orbital_polarisation_current(
                 lattice_state.curl,
-                self._curl(self._current_density(self.states[state_index - 1].density)) if state_index > 0 else lattice_state.curl,
+                self._orbital_charges(self._current_density(self.states[state_index - 1].density)) if state_index > 0 else lattice_state.curl,
             )
             / curl_pol_norm
         )
@@ -371,7 +370,7 @@ class Lattice2D:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(4 * self.Lx, 2 * self.Ly), width_ratios=[4, 2])
 
         # Left plot: current density
-        self.plot_current_density(state_index, ax=ax1)
+        self.plot_current_density(state_index, ax=ax1, auto_normalize=True)
         ax1.set_title("Current Density")
 
         # Right plot: curl and gradient
@@ -397,7 +396,7 @@ class Lattice2D:
                 idx = len(self.states) - 1
 
             # Plot current density on left
-            self.plot_current_density(idx, ax=ax1)
+            self.plot_current_density(idx, ax=ax1, auto_normalize=True)
             ax1.set_title(f"Current Density")
 
             # Plot curl and gradient on right
@@ -428,7 +427,7 @@ class Lattice2D:
         plt.close(fig)
 
     def save_current_density_animation(self, filename: str, sample_every: int = 1, curl_norm: float = 1, **save_format_kwargs) -> None:
-        curl_norm = max([max(np.abs(list(self._curl(self._current_density(state.density)).values()))) for state in self.states])
+        curl_norm = max([max(np.abs(list(self._orbital_charges(self._current_density(state.density)).values()))) for state in self.states])
         E_norm = max([np.abs(self.E(i * self.h)) for i in range(self.steps)])
         polarisation_norm = max([np.linalg.norm(state.polarisation) for state in self.states])
         curl_polarisation_norm = max([np.linalg.norm(state.curl_polarisation) for state in self.states])
