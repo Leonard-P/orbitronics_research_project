@@ -9,9 +9,9 @@ import qutip as qu
 from scipy import linalg
 from tqdm import tqdm
 from numpy.typing import NDArray
-from .lattice_geometry import LatticeGeometry, BrickwallLatticeGeometry
-from . import lattice_utils as utils
-from . import lattice_rk4 as rk4
+from lattice_geometry import LatticeGeometry, BrickwallLatticeGeometry
+import lattice_utils as utils
+import lattice_rk4 as rk4
 
 # Units a=1, h_bar=1 and e=1, t_hop=1
 # [P] = e*a/a**2
@@ -22,8 +22,8 @@ class LatticeState:
     density: NDArray[np.complex64]
     current: NDArray[np.float64]
     polarisation: NDArray[np.float64]
-    curl: Dict[int, float]
-    curl_polarisation: NDArray[np.float64]
+    orbital_charges: Dict[int, float]
+    orbital_charge_polarisation: NDArray[np.float64]
 
 
 @dataclass
@@ -33,7 +33,7 @@ class SimulationParameters:
     E_direction: np.ndarray
     h: float
     T: float
-    charge: int = 1 # TODO: Implement charge
+    charge: int = 1  # TODO: Implement charge
     initial_occupation: float = 0.5
     sample_every: int = 1
 
@@ -159,8 +159,8 @@ class Lattice2D:
             density=density_matrix,
             current=current_matrix,
             polarisation=polarisation,
-            curl=curl,
-            curl_polarisation=curl_polarisation,
+            orbital_charges=curl,
+            orbital_charge_polarisation=curl_polarisation,
         )
 
     def _current_density(self, state_matrix: np.ndarray) -> np.ndarray:
@@ -183,9 +183,14 @@ class Lattice2D:
         )  # [P] = e*a/a**2 = e/a
 
     def _orbital_polarisation(self, curl_J: Dict[int, float]) -> np.ndarray:
-        return 1 / self.N * np.sum(
-            [(np.array(self.geometry.site_to_position(site_index)) - self.curl_origin) * curl_val for site_index, curl_val in curl_J.items()], axis=0
-        ) # [P_orb] = e/a
+        return (
+            1
+            / self.N
+            * np.sum(
+                [(np.array(self.geometry.site_to_position(site_index)) - self.curl_origin) * curl_val for site_index, curl_val in curl_J.items()],
+                axis=0,
+            )
+        )  # [P_orb] = e/a
 
     def _polarisation_current(self, state_matrix: np.ndarray, previous_step_state_matrix: np.ndarray) -> np.ndarray:
         """Calculate time derivative of polarization"""
@@ -213,10 +218,10 @@ class Lattice2D:
             lattice_state = self.states[state_index]
 
         if auto_normalize:
-            curl_norm = max([max(np.abs(list(state.curl.values()))) for state in self.states])
+            curl_norm = max([max(np.abs(list(state.orbital_charges.values()))) for state in self.states])
             E_norm = max([np.linalg.norm(self.E(i * self.h)) for i in range(self.steps)])
             pol_norm = max([np.linalg.norm(state.polarisation) for state in self.states])
-            curl_pol_norm = max([np.linalg.norm(state.curl_polarisation) for state in self.states])
+            curl_pol_norm = max([np.linalg.norm(state.orbital_charge_polarisation) for state in self.states])
 
         if ax is None:
             _, ax = plt.subplots(figsize=(2 * self.Lx + 2, 2 * self.Ly))
@@ -230,7 +235,7 @@ class Lattice2D:
         )
 
         # Plot curl indicators
-        for site_idx, curl_val in lattice_state.curl.items():
+        for site_idx, curl_val in lattice_state.orbital_charges.items():
             x, y = self.geometry.site_to_position(site_idx)
             curl_val_norm = curl_val / curl_norm
             curl_circle = plt.Circle(
@@ -250,11 +255,15 @@ class Lattice2D:
             / pol_norm
         )
 
-        curl_polarisation = self._orbital_polarisation(lattice_state.curl) / curl_pol_norm
+        curl_polarisation = self._orbital_polarisation(lattice_state.orbital_charges) / curl_pol_norm
         curl_polarisation_current = (
             self._orbital_polarisation_current(
-                lattice_state.curl,
-                self._orbital_charges(self._current_density(self.states[state_index - 1].density)) if state_index > 0 else lattice_state.curl,
+                lattice_state.orbital_charges,
+                (
+                    self._orbital_charges(self._current_density(self.states[state_index - 1].density))
+                    if state_index > 0
+                    else lattice_state.orbital_charges
+                ),
             )
             / curl_pol_norm
         )
@@ -269,15 +278,8 @@ class Lattice2D:
         utils.plot_arrow(ax, arrow_x + 0.5, arrow_y, *polarisation, color="black", label="$\\vec P$")
         utils.plot_arrow(ax, arrow_x + 1, arrow_y, *polarisation_current, color="blue", label="$\\frac{\\partial \\vec P}{\\partial t}$")
         utils.plot_arrow(ax, arrow_x, arrow_y, Ex, Ey, color="red", label="$\\vec E$")
-        utils.plot_arrow(ax, arrow_x + 0.5, arrow_y - 2, *curl_polarisation, color="green", label="$\\nabla \\times \\vec J$")
-        utils.plot_arrow(
-            ax,
-            arrow_x + 0.5,
-            arrow_y - 3,
-            *curl_polarisation_current,
-            color="orange",
-            label="$\\frac{\\partial}{\\partial t} (\\nabla \\times \\vec J)$",
-        )
+        utils.plot_arrow(ax, arrow_x + 0.5, arrow_y - 2, *curl_polarisation, color="green", label="$\\vec P_{\\rm orb}$")
+        utils.plot_arrow(ax, arrow_x + 0.5, arrow_y - 3, *curl_polarisation_current, color="orange", label="$\\frac{\\partial \\vec P_{\\rm orb}}{\\partial t}$")
 
         ax.plot(arrow_x + 3, 0, alpha=0)
 
@@ -341,9 +343,8 @@ class Lattice2D:
 
         # Plot transparent dots to extend boundaries
         ax.plot(-1, -1, alpha=0)
-        ax.plot(self.Lx//self.geometry.cell_width, -1, alpha=0)
-        ax.plot(self.Lx//self.geometry.cell_width, self.Ly//self.geometry.cell_height, alpha=0)
-
+        ax.plot(self.Lx // self.geometry.cell_width, -1, alpha=0)
+        ax.plot(self.Lx // self.geometry.cell_width, self.Ly // self.geometry.cell_height, alpha=0)
 
         # Plot avg gradient on the right side
         avg_grad = arrow_scale * np.mean(list(gradient.values()), axis=0)
@@ -371,21 +372,21 @@ class Lattice2D:
 
         # Left plot: current density
         self.plot_current_density(state_index, ax=ax1, auto_normalize=True)
-        ax1.set_title("Current Density")
+        # ax1.set_title("Current Density")
 
         # Right plot: curl and gradient
-        curl = state.curl
+        curl = state.orbital_charges
         grad = self.geometry.cell_field_gradient(curl)
 
         # Use the plot_field_and_gradient function
         self.plot_field_and_gradient(curl, grad, label="\\nabla \\times \\mathbf{J}", ax=ax2)
 
-        ax2.set_title("Curl and Gradient")
+        # ax2.set_title("Curl and Gradient")
         return ax1, ax2
 
     def save_lattice_animation(self, filename, sample_every=1, **save_kwargs):
         """Save an animation with current density plot on the left and curl+gradient on the right"""
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(4 * self.Lx, 2 * self.Ly), width_ratios=[2, 3])
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(4 * self.Lx, 2 * self.Ly), width_ratios=[3, 2])
 
         def update(frame):
             ax1.clear()
@@ -397,18 +398,18 @@ class Lattice2D:
 
             # Plot current density on left
             self.plot_current_density(idx, ax=ax1, auto_normalize=True)
-            ax1.set_title(f"Current Density")
+            # ax1.set_title(f"Current Density")
 
             # Plot curl and gradient on right
             state = self.states[idx]
-            curl = state.curl
+            curl = state.orbital_charges
             grad = self.geometry.cell_field_gradient(curl)
 
             self.plot_field_and_gradient(
-                curl, grad, label="\\nabla(\\nabla \\times \\mathbf{J})_\\perp", field_cmap="bwr_r", arrow_color="black", arrow_scale=1, ax=ax2
+                curl, grad, label="\\nabla q_{\\rm orb}", field_cmap="bwr_r", arrow_color="black", arrow_scale=1, ax=ax2
             )
 
-            ax2.set_title(f"Curl and Gradient")
+            # ax2.set_title(f"Curl and Gradient")
             return ax1, ax2
 
         frames = len(self.states) // sample_every
@@ -430,7 +431,7 @@ class Lattice2D:
         curl_norm = max([max(np.abs(list(self._orbital_charges(self._current_density(state.density)).values()))) for state in self.states])
         E_norm = max([np.abs(self.E(i * self.h)) for i in range(self.steps)])
         polarisation_norm = max([np.linalg.norm(state.polarisation) for state in self.states])
-        curl_polarisation_norm = max([np.linalg.norm(state.curl_polarisation) for state in self.states])
+        curl_polarisation_norm = max([np.linalg.norm(state.orbital_charge_polarisation) for state in self.states])
 
         n_frames = len(self.states) // sample_every
         fig, ax = plt.subplots(figsize=(2 * self.Lx + 2, 2 * self.Ly))

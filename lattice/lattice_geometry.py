@@ -141,7 +141,7 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
 
             # Convert to Cartesian coordinates with Jacobian. Should be equivalent of rotating by 45 degrees and normalizing by sqrt(2)
             # TODO: check if above normalization is correct or if extra factors are present
-            J = np.array([[1, -1], [1, 1]])
+            J = np.array([[1, -1], [1, 1]]) / np.sqrt(2)
             grad[site] = J @ np.array([df_da2, df_da1])
 
         return grad

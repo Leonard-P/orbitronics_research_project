@@ -8,3 +8,5 @@
 # Ignore Python bytecode and compiled files
 *.py[cod]
 *$py.class
+
+*.lattice
