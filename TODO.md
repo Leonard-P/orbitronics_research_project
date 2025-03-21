@@ -13,3 +13,4 @@
 - [ ] right hand coordinates: positive charge along positive z direction
 - [ ] make sure to divide by Area
 - [ ] transform / convolve OR poissson equation
+- [ ] type annotations float/int for site to position

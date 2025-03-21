@@ -4,14 +4,13 @@ import pickle
 from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib
-import qutip as qu
+from matplotlib import animation
 from scipy import linalg
 from tqdm import tqdm
 from numpy.typing import NDArray
-from lattice_geometry import LatticeGeometry, BrickwallLatticeGeometry
-import lattice_utils as utils
-import lattice_rk4 as rk4
+from .lattice_geometry import LatticeGeometry, BrickwallLatticeGeometry
+from . import lattice_utils as utils
+from . import lattice_rk4 as rk4
 
 # Units a=1, h_bar=1 and e=1, t_hop=1
 # [P] = e*a/a**2
@@ -36,6 +35,7 @@ class SimulationParameters:
     charge: int = 1  # TODO: Implement charge
     initial_occupation: float = 0.5
     sample_every: int = 1
+    substeps: int = 1
 
     @property
     def simulation_n_steps(self):
@@ -73,10 +73,6 @@ class Lattice2D:
         else:
             self.density_matrix = np.zeros((self.N, self.N), dtype=complex)
 
-        if origin is not None:
-            self.origin = np.array(origin)
-        else:
-            self.origin = (np.array([self.Lx, self.Ly]) - 1) / 2  # center of lattice. Polarisation is dependent of origin.
 
     # Properties to access simulation parameters
     @property
@@ -94,10 +90,15 @@ class Lattice2D:
     @property
     def steps(self) -> int:
         return self.simulation_parameters.simulation_n_steps
+    
+    @property
+    def origin(self):
+        return self.geometry.origin
 
     @property
     def curl_origin(self):
         return self.origin - np.array([self.geometry.cell_width, self.geometry.cell_height]) / 2
+    
 
     def E(self, t) -> Union[float, Callable]:
         if callable(self.simulation_parameters.E_amplitude):
@@ -133,6 +134,11 @@ class Lattice2D:
             return
 
         if solver == "qutip":
+            if self.simulation_parameters.substeps > 1:
+                warnings.warn("Substeps not implemented for qutip solver. Using substeps=1.")
+
+            import qutip as qu
+
             H = [qu.Qobj(self.H_hop), [qu.Qobj(self.H_onsite), self.E]]
             rho = qu.Qobj(self.density_matrix)
             step_list = np.linspace(0, self.h * self.steps, self.steps)
@@ -141,11 +147,24 @@ class Lattice2D:
             # Compute all derived quantities for each time step
             self.states = [self.compute_lattice_state(state.data_as(format="ndarray")) for state in sim.states]
         elif solver == "rk4":
-            sim = rk4.evolve_density_matrix_rk4(
-                self.H_hop, self.H_onsite, self.density_matrix, self.E, self.h, self.simulation_parameters.T, **solver_kwargs
-            )
+            dt = self.h / self.simulation_parameters.substeps
+            sample_every = self.simulation_parameters.substeps
+
             if solver_kwargs.get("sample_every", 1) != 1:
+                warnings.warn("Use substeps parameter to decrease the number of samples and ensure appropriate h time scale.")
                 self.simulation_parameters.h = self.h * solver_kwargs["sample_every"]
+                sample_every=solver_kwargs["sample_every"]
+            sim = rk4.evolve_density_matrix_rk4(
+                self.H_hop,
+                self.H_onsite,
+                self.density_matrix,
+                self.E,
+                dt,
+                self.simulation_parameters.T,
+                sample_every=sample_every,
+                **solver_kwargs,
+            )
+            
             self.states = [self.compute_lattice_state(state) for state in sim]
 
     def compute_lattice_state(self, density_matrix: np.ndarray) -> LatticeState:
@@ -203,7 +222,7 @@ class Lattice2D:
     def plot_current_density(
         self,
         state_index: int,
-        ax: Optional[matplotlib.axes] = None,
+        ax: Optional[plt.axis] = None,
         curl_norm: float = 1,
         E_norm: float = 1,
         curl_pol_norm: float = 1,
@@ -229,24 +248,27 @@ class Lattice2D:
             ax.clear()
 
         site_values = np.real(np.diag(lattice_state.density)) * self.N * self.occupation_fraction
-        utils.plot_site_grid(site_values, self.Lx, self.Ly, ax, vmin=0.0, vmax=1, cmap_name="Greys")
+        utils.plot_site_grid(site_values, self.geometry, ax, vmin=0.0, vmax=1, cmap_name="Greys")
         utils.plot_site_connections(
-            lattice_state.current, self.Lx, self.Ly, ax, max_flow=np.max(np.abs(lattice_state.current)), label_connection_strength=False
+            lattice_state.current, self.geometry, ax, max_flow=np.max(np.abs(lattice_state.current)), label_connection_strength=False
         )
 
         # Plot curl indicators
         for site_idx, curl_val in lattice_state.orbital_charges.items():
+            radius = 0.2
             x, y = self.geometry.site_to_position(site_idx)
+            x += 0.5 #self.geometry.cell_width / 2 - radius
+            y += 0.5 #self.geometry.cell_height / 2 - radius
             curl_val_norm = curl_val / curl_norm
             curl_circle = plt.Circle(
-                (x + 0.5, y + 0.5),
-                0.2,
+                (x, y),
+                radius,
                 facecolor="blue" if curl_val_norm > 0 else "red",
                 zorder=2,
             )
             ax.add_patch(curl_circle)
-            ax.text(x + 0.5, y + 0.5, f"{curl_val_norm:.2f}", color="white", ha="center", va="center", fontsize=10, zorder=3)
-            ax.plot(x + 0.5, y + 0.5, alpha=0)
+            ax.text(x, y, f"{curl_val_norm:.2f}", color="white", ha="center", va="center", fontsize=10, zorder=3)
+            ax.plot(x, y, alpha=0)
 
         arrow_x, arrow_y = self.Lx - 0.1, self.Ly - 2
         polarisation = self._polarisation(lattice_state.density) / pol_norm
@@ -279,7 +301,9 @@ class Lattice2D:
         utils.plot_arrow(ax, arrow_x + 1, arrow_y, *polarisation_current, color="blue", label="$\\frac{\\partial \\vec P}{\\partial t}$")
         utils.plot_arrow(ax, arrow_x, arrow_y, Ex, Ey, color="red", label="$\\vec E$")
         utils.plot_arrow(ax, arrow_x + 0.5, arrow_y - 2, *curl_polarisation, color="green", label="$\\vec P_{\\rm orb}$")
-        utils.plot_arrow(ax, arrow_x + 0.5, arrow_y - 3, *curl_polarisation_current, color="orange", label="$\\frac{\\partial \\vec P_{\\rm orb}}{\\partial t}$")
+        utils.plot_arrow(
+            ax, arrow_x + 0.5, arrow_y - 3, *curl_polarisation_current, color="orange", label="$\\frac{\\partial \\vec P_{\\rm orb}}{\\partial t}$"
+        )
 
         ax.plot(arrow_x + 3, 0, alpha=0)
 
@@ -302,8 +326,8 @@ class Lattice2D:
 
     def plot_hamiltonian(self) -> None:
         _, ax = plt.subplots(figsize=(2 * self.Lx, 2 * self.Ly))
-        utils.plot_site_grid(np.diag(self.H_onsite), self.Lx, self.Ly, ax, cmap_name="viridis")
-        utils.plot_site_connections(self.H_hop, self.Lx, self.Ly, ax, max_flow=self.t_hop, plot_flow_direction_arrows=False)
+        utils.plot_site_grid(np.diag(self.H_onsite), self.geometry, ax, cmap_name="viridis")
+        utils.plot_site_connections(self.H_hop, self.geometry, ax, max_flow=self.t_hop, plot_flow_direction_arrows=False)
         plt.tight_layout()
         plt.show()
 
@@ -315,8 +339,8 @@ class Lattice2D:
         field_cmap: str = "bwr_r",
         arrow_color: str = "black",
         arrow_scale: float = 1,
-        ax: Optional[matplotlib.axes] = None,
-    ) -> matplotlib.axes:
+        ax: Optional[plt.axis] = None,
+    ) -> plt.axis:
         """Plot a scalar field and its gradient on a lattice."""
         if ax is None:
             fig, ax = plt.subplots(figsize=(2 * self.Lx, 2 * self.Ly))
@@ -333,7 +357,7 @@ class Lattice2D:
         site_norm = np.nanmax(np.abs(field_array))
         if site_norm < 1e-12:
             site_norm = 1
-        utils.plot_site_grid(field_array / site_norm, self.Lx, self.Ly, ax, cmap_name=field_cmap)
+        utils.plot_site_grid(field_array / site_norm, self.geometry, ax, cmap_name=field_cmap)
 
         for idx, grad in gradient.items():
             x, y = idx % self.Lx, idx // self.Lx
@@ -343,8 +367,7 @@ class Lattice2D:
 
         # Plot transparent dots to extend boundaries
         ax.plot(-1, -1, alpha=0)
-        ax.plot(self.Lx // self.geometry.cell_width, -1, alpha=0)
-        ax.plot(self.Lx // self.geometry.cell_width, self.Ly // self.geometry.cell_height, alpha=0)
+        ax.plot(self.Lx // self.geometry.cell_width + 1, self.Ly // self.geometry.cell_height, alpha=0)
 
         # Plot avg gradient on the right side
         avg_grad = arrow_scale * np.mean(list(gradient.values()), axis=0)
@@ -360,7 +383,7 @@ class Lattice2D:
 
         return ax
 
-    def plot_combined_current_and_curl(self, state_index: int = 0) -> Tuple[matplotlib.axes, matplotlib.axes]:
+    def plot_combined_current_and_curl(self, state_index: int = 0) -> Tuple[plt.axis, plt.axis]:
         """Create a combined plot with current density on the left and curl+gradient on the right"""
         if self.states is None:
             state = self.compute_lattice_state(self.density_matrix)
@@ -405,9 +428,7 @@ class Lattice2D:
             curl = state.orbital_charges
             grad = self.geometry.cell_field_gradient(curl)
 
-            self.plot_field_and_gradient(
-                curl, grad, label="\\nabla q_{\\rm orb}", field_cmap="bwr_r", arrow_color="black", arrow_scale=1, ax=ax2
-            )
+            self.plot_field_and_gradient(curl, grad, label="\\nabla q_{\\rm orb}", field_cmap="bwr_r", arrow_color="black", arrow_scale=1, ax=ax2)
 
             # ax2.set_title(f"Curl and Gradient")
             return ax1, ax2
@@ -423,7 +444,7 @@ class Lattice2D:
             progress_bar.n = current_frame + 1
             progress_bar.refresh()
 
-        anim = matplotlib.animation.FuncAnimation(fig, update, frames=frames, blit=False)
+        anim = animation.FuncAnimation(fig, update, frames=frames, blit=False)
         anim.save(filename, progress_callback=update_progress, **save_kwargs)
         plt.close(fig)
 
@@ -435,7 +456,7 @@ class Lattice2D:
 
         n_frames = len(self.states) // sample_every
         fig, ax = plt.subplots(figsize=(2 * self.Lx + 2, 2 * self.Ly))
-        animation = matplotlib.animation.FuncAnimation(
+        anim = animation.FuncAnimation(
             fig,
             lambda frame: self.plot_current_density(
                 sample_every * frame,
@@ -455,7 +476,7 @@ class Lattice2D:
             progress_bar.n = current_frame + 1
             progress_bar.refresh()
 
-        animation.save(filename, progress_callback=update_progress, **save_format_kwargs)
+        anim.save(filename, progress_callback=update_progress, **save_format_kwargs)
         progress_bar.close()
         plt.close(fig)
 

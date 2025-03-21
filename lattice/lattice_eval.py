@@ -29,11 +29,12 @@ class SimulationData:
         return freqs[mask], np.abs(np.fft.fft(t_signal))[mask]
 
     @classmethod
-    def from_lattice(cls, l: Lattice2D, omega: float, cutoff_freq=None) -> None:
+    def from_lattice(cls, l: Lattice2D, omega: float=1.0, cutoff_freq: float = float("inf")) -> None:
         """Returns time series and FFT data for a simulated lattice."""
-        t = np.arange(0, (l.steps + 1) * l.h, l.h)
+        #t = np.arange(0, (l.steps + 1) * l.h, l.h)
+        t = np.array([t*l.h for t in range(len(l.states))])
 
-        E = np.cos(omega * t)
+        E = np.sin(omega * t)
         P = [state.polarisation[1] for state in l.states]
         P_current = np.diff(P) / l.h
         M = [state.orbital_charge_polarisation[0] for state in l.states]
@@ -132,27 +133,32 @@ class SimulationData:
         """Plot FFT data from simulation."""
         fig, axs = plt.subplots(4, 1, figsize=(10, 12))
 
-        max_freq = cutoff_freq if cutoff_freq is not None else data.freqs[-1]
+        max_freq = cutoff_freq if cutoff_freq is not None else self.freqs[-1]
 
         mask = self.freqs <= max_freq
 
-        axs[0].bar(self.freqs[mask], self.E_fft[mask], color="tab:blue")
+        axs[0].plot(self.freqs[mask], self.E_fft[mask], ".", color="tab:blue",)# width=max_freq / len(self.freqs[mask]))
         axs[0].set_title("FFT of $E$")
         axs[0].set_ylabel("Amplitude")
 
-        axs[1].bar(self.freqs[mask], self.P_fft[mask], color="tab:green")
+        axs[1].plot(self.freqs[mask], self.P_fft[mask], ".", color="tab:green")
         axs[1].set_title("FFT of $P_x$")
         axs[1].set_ylabel("Amplitude")
 
-        axs[2].bar(self.freqs[mask], self.M_fft[mask], color="tab:red")
+        axs[2].plot(self.freqs[mask], self.M_fft[mask], ".", color="tab:red")
         axs[2].set_title("FFT of $P_{\\rm orb, y}(t)$")
         axs[2].set_ylabel("Amplitude")
 
-        axs[3].bar(self.freqs[mask], self.M_grad_fft[mask], color="tab:green")
+        axs[3].plot(self.freqs[mask], self.M_grad_fft[mask], ".", color="tab:green")
         axs[3].set_title("FFT of $\\nabla q_{\\rm orb}(t)$")
         axs[3].set_ylabel("Amplitude")
 
         axs[3].set_xlabel("Frequency / $\\omega$")
+
+        for ax in axs:
+            # log x and y scale
+            ax.set_xscale("log")
+            ax.set_yscale("log")
 
         plt.tight_layout()
         return fig, axs

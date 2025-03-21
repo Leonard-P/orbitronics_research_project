@@ -9,6 +9,7 @@ class LatticeGeometry(ABC):
     def __init__(self, dimensions: Tuple[int, int], cell_path: List[Tuple[int, int]] = None):
         self.dimensions = dimensions
         self.Lx, self.Ly = dimensions
+        self.origin = (np.array([self.Lx, self.Ly]) - 1) / 2
 
         self.cell_path = cell_path
         flat = np.array(self.cell_path).flatten()
@@ -95,18 +96,8 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
         ]
 
     def cell_field_gradient(self, f: dict[int, float]) -> dict[int, np.ndarray]:
-        """
-        Compute gradient (df/dx, df/dy) for brickwall lattice point (x, y).
-
-        Parameters:
-        x, y      : Coordinates of the target point
-        f         : Dictionary mapping site indices -> f(xi, yi)
-
-        Returns:
-        dict[int, np.ndarray]: Estimated Cartesian gradients at each cell site
-        """
-
         grad: dict[int, np.ndarray] = {}
+
         for site in self.get_curl_sites():
             x, y = self.site_to_position(site)
 
@@ -120,7 +111,7 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
 
             # Compute central differences
             if f_lr is not None and f_ul is not None:
-                df_da1 = (f_ul - f_lr) / (2*np.sqrt(2))
+                df_da1 = (f_ul - f_lr) / (2 * np.sqrt(2))
             else:
                 if f_lr is not None:
                     df_da1 = (f_site - f_lr) / np.sqrt(2)
@@ -145,3 +136,27 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
             grad[site] = J @ np.array([df_da2, df_da1])
 
         return grad
+
+
+class HexagonalLatticeGeometry(BrickwallLatticeGeometry):
+    def __init__(self, dimensions):
+        super().__init__(dimensions)
+        
+        self.row_height = 1.5
+        self.col_width = np.sqrt(3) / 2
+        self.origin = np.array([(self.Lx-1) * self.col_width, (self.Ly-1) * self.row_height]) / 2
+
+    def site_to_position(self, site_index: int) -> Tuple[float, float]:
+        row = site_index // self.Lx
+        col = site_index % self.Lx
+
+        y_offset = 0.25 * (-1) ** ((col + row) % 2)
+
+        x = self.col_width * (site_index % self.Lx)
+        y = self.row_height * row + y_offset
+
+        return x, y
+
+    def cell_field_gradient(self, f: dict[int, float]) -> dict[int, np.ndarray]:
+        # TODO
+        raise NotImplementedError

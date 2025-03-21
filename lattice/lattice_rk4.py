@@ -38,9 +38,6 @@ def time_evolution_derivative(
 
     # Calculate [H, ρ]
     if sparse.issparse(H):
-        # print(sparse.issparse(density_matrix.dot(H)), "dens.dot(H)")
-        # print(sparse.issparse(H.dot(density_matrix)), "H.dot(dens)")
-        # commutator = H.dot(density_matrix) - density_matrix.dot(H)
         commutator = H.dot(density_matrix) - sparse.csr_matrix.dot(density_matrix, H)
     else:
         # "explicitly" use np.matmul for dense arrays

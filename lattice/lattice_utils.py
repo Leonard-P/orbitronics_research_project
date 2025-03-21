@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 
+from .lattice_geometry import LatticeGeometry
+
 
 def plot_arrow(ax: matplotlib.axis, x: float, y: float, dx: float, dy: float, color: str = "black", label: str = ""):
     # ax.annotate(
@@ -25,14 +27,14 @@ def plot_arrow(ax: matplotlib.axis, x: float, y: float, dx: float, dy: float, co
 
 def plot_site_grid(
     site_values: np.ndarray,
-    Lx: int,
-    Ly: int,
+    geometry: LatticeGeometry,
     ax: matplotlib.axis = None,
     vmin: float = None,
     vmax: float = None,
     cmap_name: str = "inferno",
 ) -> matplotlib.axis:
     """Plot grid sites with values as colored circles."""
+    Lx, Ly = geometry.dimensions
     external_axis = ax is not None
     if not external_axis:
         _, ax = plt.subplots(figsize=(2 * Lx, 2 * Ly))
@@ -44,7 +46,7 @@ def plot_site_grid(
     for idx, val in enumerate(site_values):
         if np.isnan(val):
             continue
-        x, y = idx % Lx, idx // Lx
+        x, y = geometry.site_to_position(idx)
         color_val = complex(norm(val)).real
         circle_color = cmap(color_val)
         circle = plt.Circle((x, y), 0.3, facecolor=circle_color, edgecolor="black", zorder=2)
@@ -74,14 +76,14 @@ def plot_site_grid(
 
 def plot_site_connections(
     connection_matrix: np.ndarray,
-    Lx: int,
-    Ly: int,
+    geometry: LatticeGeometry,
     ax: matplotlib.axis = None,
     max_flow: float = 1,
     label_connection_strength: bool = True,
     plot_flow_direction_arrows: bool = True,
 ) -> matplotlib.axis:
     """Plot connections between sites with arrows showing flow direction."""
+    Lx, Ly = geometry.dimensions
     if ax is None:
         _, ax = plt.subplots(figsize=(2 * Lx, 2 * Ly))
 
@@ -91,8 +93,8 @@ def plot_site_connections(
             if (J := connection_matrix[u, v]) == 0:
                 continue
 
-            x1, y1 = u % Lx, u // Lx
-            x2, y2 = v % Lx, v // Lx
+            x1, y1 = geometry.site_to_position(u)
+            x2, y2 = geometry.site_to_position(v)
 
             linewidth = 2 * abs(J) / max_flow
             color = "red" if J < 0 else "blue"
@@ -116,9 +118,9 @@ def plot_site_connections(
                 yval = np.linspace(y1, y2, 8)
 
                 if x1 == x2:
-                    arrow = "v" if J > 0 else "^"
+                    arrow = "v" if J < 0 else "^"
                 else:
-                    arrow = ">" if J < 0 else "<"
+                    arrow = ">" if J > 0 else "<"
 
                 ax.plot(
                     xval,
@@ -142,8 +144,8 @@ if __name__ == "__main__":
         conn_matrix[i, i + 1] = np.random.rand() - 0.5
 
     fig, ax = plt.subplots(figsize=(10, 10))
-    plot_site_grid(grid_values, 5, 5, ax)
-    plot_site_connections(conn_matrix, 5, 5, ax)
+    # plot_site_grid(grid_values, 5, 5, ax)
+    # plot_site_connections(conn_matrix, 5, 5, ax)
 
     plt.tight_layout()
     plt.show()
