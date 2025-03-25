@@ -32,14 +32,25 @@ class SimulationParameters:
     E_direction: np.ndarray
     h: float
     T: float
+    substeps: int
     charge: int = 1  # TODO: Implement charge
     initial_occupation: float = 0.5
-    sample_every: int = 1
-    substeps: int = 1
 
     @property
     def simulation_n_steps(self):
         return int(self.T / self.h)
+    
+    @classmethod
+    def default(cls):
+        return cls(
+            t_hop=1,
+            E_amplitude=1.0,
+            E_direction=np.array([0, -1]),
+            h=0.01,
+            T=1,
+            initial_occupation=0.5,
+            substeps=1,
+        )
 
 
 class Lattice2D:
