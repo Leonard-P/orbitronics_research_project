@@ -1,6 +1,24 @@
 # TODOs
 
 ## bugs/fixes/mistakes
+
+### IMPORTANT: geometry fixes for multiatom basis
+- [ ] think through: Lattice width vs. nearest neighbor distance vs. t_hop vs. norm area for polarisation
+  - possible solution: t_hop = 1, lattice width = 1, nearest neighbor dist != 1, cell_area param
+- [ ] get sublattice sites
+  - classify param in site_to_pos? -> Hex lattice is just Brickwall with vertically shifted sublattices
+  - split list over whole lattice in sublists?
+
+### theory checks
+- mode spacing: since bandwidth finite, probably correct. 
+- check if current resonates at \Delta E_y 
+- check resonance also for other basis
+- check 2D band width
+- check required field - does it depend on length?
+  - check max polarisation for different sine field amplitudes
+  - rerun check at double length to see if smaller field required
+
+### less important
 - [x] Simulations with sine E-field  
 - [x] units [solved for now] 
 - [x] flux gradient  
@@ -11,7 +29,6 @@
 
 ## new module functionality
 - [x] RK4 solver  
-- [ ] windows for fft  
 - [x] move origin param to LatticeGeometry()  
 - [ ] implement charge param != 1  
 - [ ] defect scattering experiments by removing sites

@@ -43,7 +43,7 @@ class SimulationParameters:
     @classmethod
     def default(cls):
         return cls(
-            t_hop=1,
+            t_hop=-1,
             E_amplitude=1.0,
             E_direction=np.array([0, -1]),
             h=0.01,
