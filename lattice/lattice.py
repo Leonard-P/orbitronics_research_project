@@ -1,6 +1,6 @@
 from typing import Tuple, Union, Callable, Optional, Dict
 import warnings
-import pickle
+import dill
 from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
@@ -493,12 +493,12 @@ class Lattice2D:
 
     def save(self, filename: str) -> None:
         with open(filename, "wb") as f:
-            pickle.dump(self, f)
+            dill.dump(self, f)
 
     @staticmethod
     def load(filename: str):
         with open(filename, "rb") as f:
-            return pickle.load(f)
+            return dill.load(f)
 
 
 if __name__ == "__main__":

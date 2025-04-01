@@ -42,7 +42,7 @@ class RectangularLatticeGeometry(LatticeGeometry):
 
     def __init__(self, dimensions: Tuple[int, int]):
         Lx, _ = dimensions
-        path = [(0, 1), (1, Lx + 1), (Lx + 1, Lx), (Lx, 0)]
+        path = [(1, 0), (Lx + 1, 1), (Lx, Lx + 1), (0, Lx)]
         super().__init__(dimensions, path)
 
     def get_hopping_matrix(self) -> np.ndarray:
@@ -73,7 +73,7 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
 
     def __init__(self, dimensions: Tuple[int, int]):
         Lx, _ = dimensions
-        path = np.array([(0, 1), (1, 2), (2, Lx + 2), (Lx + 2, Lx + 1), (Lx + 1, Lx), (Lx, 0)])
+        path = np.array([(1, 0), (2, 1), (Lx + 2, 2), (Lx + 1, Lx + 2), (Lx, Lx + 1), (0, Lx)])
         super(RectangularLatticeGeometry, self).__init__(dimensions, path)
 
     def get_hopping_matrix(self) -> np.ndarray:
