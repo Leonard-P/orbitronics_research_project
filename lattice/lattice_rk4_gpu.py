@@ -3,9 +3,12 @@ from tqdm import trange
 
 import cupy as cp
 import cupy.sparse as sparse  # Use cupy.sparse
+import numpy as np
+from numpy.typing import NDArray
 
+InputMatrix = np.ndarray
+GpuMatrix = Union[cp.ndarray, sparse.spmatrix]
 
-Matrix = Union[cp.ndarray, sparse.spmatrix]
 
 DEFAULT_PRECISION = "double"  # Options: 'single', 'double'
 
@@ -13,111 +16,116 @@ DEFAULT_PRECISION = "double"  # Options: 'single', 'double'
 def get_cupy_dtypes(precision: str = DEFAULT_PRECISION):
     """Gets the CuPy float and complex dtypes based on precision string."""
     if precision.lower() == "single":
-        return cp.float32, cp.complex64
+        return cp.float32, cp.complex64, np.float32
     elif precision.lower() == "double":
-        return cp.float64, cp.complex128
+        return cp.float64, cp.complex128, np.float64
     else:
         raise ValueError("precision must be 'single' or 'double'")
 
 
 def time_evolution_derivative(
-    t: float,
     density_matrix: cp.ndarray,
-    H_hop: Matrix,
-    H_onsite: Matrix,
-    field_amplitude: Callable[[float], float],
+    H_hop: GpuMatrix,
+    H_onsite: GpuMatrix,
+    field_amplitude_value: cp.float_,
     initial_density: Optional[cp.ndarray] = None,
-    decay_time: float = float("inf"),
-    float_dtype=cp.float64,
-    complex_dtype=cp.complex128,
+    decay_rate: Optional[cp.float_] = None,  # Precomputed 1/decay_time or None
 ) -> cp.ndarray:
     """
     Calculate the time derivative of the density matrix.
 
-    ∂ρ/∂t = -i[H, ρ] + (ρ₀ - ρ) / τ
+    ∂ρ/∂t = -i[H, ρ] + (ρ₀ - ρ) * decay_rate
 
     Parameters:
-      t: Current time.
-      density_matrix: Density matrix ρ(t) (dense).
-      H_hop: Hopping Hamiltonian (dense or sparse).
-      H_onsite: On-site potential Hamiltonian (dense or sparse).
-      field_amplitude: Field amplitude (function of time).
-      initial_density: Initial density matrix ρ₀ (dense), used for decay term.
-      decay_time: Decay time constant τ. Default is infinity (no decay).
+      density_matrix: Density matrix ρ(t) (dense GPU array).
+      H_hop: Hopping Hamiltonian (dense or sparse GPU matrix).
+      H_onsite: On-site potential Hamiltonian (dense or sparse GPU matrix).
+      amplitude_value: Precomputed field amplitude value for this specific time step.
+      initial_density_gpu: Initial density matrix ρ₀ (dense GPU array), used for decay term.
+      decay_rate: Precomputed decay rate (1 / τ) as GPU float, or None if no decay.
 
     Returns:
-      The time derivative of the density matrix (dense ndarray).
+      The time derivative of the density matrix (dense GPU ndarray).
     """
 
     # Calculate the time-dependent Hamiltonian
-    H = H_hop + float_dtype(field_amplitude(t)) * H_onsite
+    H = H_hop + field_amplitude_value * H_onsite
 
-    # Calculate [H, ρ]
-    if sparse.issparse(H):
-        commutator = H.dot(density_matrix) - sparse.csr_matrix.dot(density_matrix, H)
-    else:
-        # "explicitly" use np.matmul for dense arrays
-        commutator = H @ density_matrix - density_matrix @ H
+    # Calculate -i[H, ρ]
+    commutator = H @ density_matrix - density_matrix @ H
+    d_rho_dt = -1j * commutator
 
-    if decay_time != float("inf") and initial_density is not None:
-        decay_term = (initial_density - density_matrix) / float_dtype(decay_time)
-        return -1j * commutator + decay_term  # Possible TODO: ensure decay_term is complex with .astype(complex_dtype, copy=False)
+    if decay_rate is not None and initial_density is not None:
+        # Ensure decay_term calculation maintains correct type
+        decay_term = (initial_density - density_matrix) * decay_rate
+        d_rho_dt += decay_term  # Adding complex + complex
 
-    return -1j * commutator
+    return d_rho_dt
 
 
 def rk4_step(
-    t: float,
     density_matrix: cp.ndarray,
-    H_hop: cp.ndarray,
-    H_onsite: cp.ndarray,
-    field_amplitude: Union[float, Callable[[float], float]],
-    dt: float,
+    H_hop: GpuMatrix,
+    H_onsite: GpuMatrix,
+    amp_t: cp.float_,
+    amp_mid: cp.float_,  # Value at t + dt/2 (used twice)
+    amp_next: cp.float_,  # Value at t + dt
+    dt: cp.float_,  # dt already cast to float_dtype
     initial_density: Optional[cp.ndarray] = None,
-    decay_time: float = float("inf"),
+    decay_rate: Optional[cp.float_] = None,  # Precomputed 1/decay_time
     float_dtype=cp.float64,
-    complex_dtype=cp.complex128,
 ) -> cp.ndarray:
     """
     Perform a single Runge-Kutta 4th order step to evolve the density matrix.
 
     Parameters:
-      t: Current time.
-      density_matrix: Density matrix ρ(t) (dense).
-      H_hop: Hopping Hamiltonian (dense or sparse).
-      H_onsite: On-site potential Hamiltonian (dense or sparse).
-      field_amplitude: Field amplitude as a callable.
-      dt: Time step.
-      initial_density: Initial density matrix for the decay term.
-      decay_time: Decay time constant τ.
+      density_matrix: Density matrix ρ(t) (dense GPU array).
+      H_hop: Hopping Hamiltonian (dense or sparse GPU matrix).
+      H_onsite: On-site potential Hamiltonian (dense or sparse GPU matrix).
+      amp_t: Field amplitude value at time t.
+      amp_mid: Field amplitude value at time t + dt/2.
+      amp_next: Field amplitude value at time t + dt.
+      dt: Time step (CuPy float scalar).
+      initial_density_gpu: Initial density matrix ρ₀ (dense GPU array).
+      decay_rate: Precomputed decay rate (1/τ) as GPU float, or None.
 
     Returns:
-      The density matrix after one RK4 step (dense ndarray).
+      The density matrix after one RK4 step (dense GPU ndarray).
     """
-    dt = float_dtype(dt)  # Ensure dt is compatible float type
+    # RK4 Coefficients
+    one_sixth = float_dtype(1.0 / 6.0)
+    one_half = float_dtype(0.5)
+    two = float_dtype(2.0)
 
-    k1 = dt * time_evolution_derivative(t, density_matrix, H_hop, H_onsite, field_amplitude, initial_density, decay_time, float_dtype, complex_dtype)
-    k2 = dt * time_evolution_derivative(t + 0.5 * dt, density_matrix + 0.5 * k1, H_hop, H_onsite, field_amplitude, initial_density, decay_time, float_dtype, complex_dtype)
-    k3 = dt * time_evolution_derivative(t + 0.5 * dt, density_matrix + 0.5 * k2, H_hop, H_onsite, field_amplitude, initial_density, decay_time, float_dtype, complex_dtype)
-    k4 = dt * time_evolution_derivative(t + dt, density_matrix + k3, H_hop, H_onsite, field_amplitude, initial_density, decay_time, float_dtype, complex_dtype)
+    k1 = time_evolution_derivative(density_matrix, H_hop, H_onsite, amp_t, initial_density, decay_rate)
+    rho_k1 = density_matrix + (one_half * dt) * k1
 
-    D_next = density_matrix + (1.0 / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+    k2 = time_evolution_derivative(rho_k1, H_hop, H_onsite, amp_mid, initial_density, decay_rate)
+    rho_k2 = density_matrix + (one_half * dt) * k2
+
+    k3 = time_evolution_derivative(rho_k2, H_hop, H_onsite, amp_mid, initial_density, decay_rate)
+    rho_k3 = density_matrix + dt * k3
+
+    k4 = time_evolution_derivative(rho_k3, H_hop, H_onsite, amp_next, initial_density, decay_rate)
+
+    D_next = density_matrix + one_sixth * dt * (k1 + two * k2 + two * k3 + k4)
 
     # Ensure hermiticity (numerical error can cause slight deviations)
-    D_next = (D_next + D_next.T.conj()) / 2.0
+    D_next = (D_next + D_next.T.conj()) * one_half
 
-    return D_next # Possible TODO: ensure D_next is complex dtype with .astype(complex_dtype, copy=False)
+    return D_next
 
 
 def evolve_density_matrix_rk4_gpu(
-    H_hop: cp.ndarray,
-    H_onsite: cp.ndarray,
-    initial_density: cp.ndarray,
-    field_amplitude: Union[float, Callable[[float], float]],
+    H_hop: InputMatrix,
+    H_onsite: InputMatrix,
+    initial_density: InputMatrix,
+    field_amplitude_vectorized: Callable[[NDArray[np.float64]], NDArray[np.float64]],
     dt: float,
     total_time: float,
     decay_time: float = float("inf"),
     sample_every: int = 1,
+    first_snapshot_step: int = 0,
     use_sparse: bool = True,
     precision: str = DEFAULT_PRECISION,
 ) -> List[cp.ndarray]:
@@ -128,19 +136,34 @@ def evolve_density_matrix_rk4_gpu(
       H_hop: Hopping Hamiltonian (dense ndarray). Will be converted to sparse if use_sparse is True.
       H_onsite: On-site potential Hamiltonian (dense ndarray). Converted similarly.
       initial_density: Initial density matrix ρ₀ (dense ndarray).
-      field_amplitude: Field amplitude as a callable.
+      field_amplitude_vectorized: Field amplitude as a callable.
       dt: Time step.
       total_time: Total simulation time.
       decay_time: Decay time constant τ.
       sample_every: Store every n-th step (if 0, only the final state is stored).
       use_sparse: If True, convert Hamiltonians to sparse matrices for multiplication efficiency.
+      precision: 'single' or 'double'.
 
     Returns:
       A list of density matrices (dense ndarrays) at each stored time step.
     """
-    n_steps = int(total_time / dt)
-    float_dtype, complex_dtype = get_cupy_dtypes(precision)
+    n_steps = int(round(total_time / dt))
+    float_dtype, complex_dtype, np_float_dtype = get_cupy_dtypes(precision)
     print(f"Using GPU with precision: float={float_dtype}, complex={complex_dtype}")
+
+    times = np.arange(n_steps + 1, dtype=np_float_dtype) * dt
+    times_mid = times_t + np_float_dtype(0.5 * dt)
+
+    amplitudes_t_np = field_amplitude_vectorized(times)
+    amplitudes_mid_np = field_amplitude_vectorized(times_mid)
+
+    # 3. Ensure correct dtype and move precomputed amplitudes to GPU
+    # Use copy=False if the vectorized function already returns the correct dtype
+    amplitudes_t_gpu = cp.asarray(amplitudes_t_np, dtype=float_dtype)
+    amplitudes_mid_gpu = cp.asarray(amplitudes_mid_np, dtype=float_dtype)
+
+    del amplitudes_t_np, amplitudes_mid_np, times_t, times_mid
+    print("Amplitude precomputation complete.")
 
     # Move data to GPU
     initial_density_gpu = cp.asarray(initial_density, dtype=complex_dtype)
@@ -152,16 +175,35 @@ def evolve_density_matrix_rk4_gpu(
         H_hop_gpu = sparse.csr_matrix(H_hop_gpu, dtype=float_dtype)
         H_onsite_gpu = sparse.csr_matrix(H_onsite_gpu, dtype=float_dtype)
 
+    decay_rate_gpu: Optional[cp.float_] = None
+    if decay_time != float("inf") and decay_time > 0:
+        decay_rate_gpu = float_dtype(1.0 / decay_time)
+
+    dt_gpu = float_dtype(dt)
+
     D_t_gpu = initial_density_gpu.copy()
     result_gpu: List[cp.ndarray] = []  # Store results on GPU initially
 
     for step in trange(n_steps):
-        if sample_every and (step % sample_every == 0):
+        if sample_every and (step >= first_snapshot_step) and (step % sample_every == 0):
             result_gpu.append(D_t_gpu.copy())
 
-        t = step * dt
-        # Pass GPU arrays to rk4_step
-        D_t_gpu = rk4_step(t, D_t_gpu, H_hop_gpu, H_onsite_gpu, field_amplitude, dt, initial_density_gpu, decay_time, float_dtype, complex_dtype)
+        amp_t = amplitudes_t_gpu[step]
+        amp_mid = amplitudes_mid_gpu[step]
+        amp_next = amplitudes_t_gpu[step + 1]
+
+        D_t_gpu = rk4_step(
+            D_t_gpu,
+            H_hop_gpu,
+            H_onsite_gpu,
+            amp_t,
+            amp_mid,
+            amp_next,
+            dt_gpu,
+            initial_density_gpu, 
+            decay_rate_gpu, 
+            float_dtype,
+        )
 
     result_gpu.append(D_t_gpu.copy())
 
