@@ -167,19 +167,32 @@ class Lattice2D:
 
             if use_gpu:
                 from . import lattice_rk4_gpu as rk4
+
+                sim = rk4.evolve_density_matrix_rk4_gpu(
+                    self.H_hop,
+                    self.H_onsite,
+                    self.density_matrix,
+                    self.E,
+                    dt,
+                    self.simulation_parameters.T,
+                    sample_every=sample_every,
+                    **solver_kwargs,
+                )
             else:
                 from . import lattice_rk4 as rk4
 
-            sim = rk4.evolve_density_matrix_rk4(
-                self.H_hop,
-                self.H_onsite,
-                self.density_matrix,
-                self.E,
-                dt,
-                self.simulation_parameters.T,
-                sample_every=sample_every,
-                **solver_kwargs,
-            )
+                sim = rk4.evolve_density_matrix_rk4(
+                    self.H_hop,
+                    self.H_onsite,
+                    self.density_matrix,
+                    self.E,
+                    dt,
+                    self.simulation_parameters.T,
+                    sample_every=sample_every,
+                    **solver_kwargs,
+                )
+
+            
             
             self.states = [self.compute_lattice_state(state) for state in sim]
 
