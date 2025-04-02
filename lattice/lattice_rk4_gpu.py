@@ -152,7 +152,7 @@ def evolve_density_matrix_rk4_gpu(
     print(f"Using GPU with precision: float={float_dtype}, complex={complex_dtype}")
 
     times = np.arange(n_steps + 1, dtype=np_float_dtype) * dt
-    times_mid = times_t + np_float_dtype(0.5 * dt)
+    times_mid = times + np_float_dtype(0.5 * dt)
 
     amplitudes_t_np = field_amplitude_vectorized(times)
     amplitudes_mid_np = field_amplitude_vectorized(times_mid)
@@ -162,7 +162,7 @@ def evolve_density_matrix_rk4_gpu(
     amplitudes_t_gpu = cp.asarray(amplitudes_t_np, dtype=float_dtype)
     amplitudes_mid_gpu = cp.asarray(amplitudes_mid_np, dtype=float_dtype)
 
-    del amplitudes_t_np, amplitudes_mid_np, times_t, times_mid
+    del amplitudes_t_np, amplitudes_mid_np, times, times_mid
     print("Amplitude precomputation complete.")
 
     # Move data to GPU
