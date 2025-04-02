@@ -1,42 +1,48 @@
 from multiprocessing import Pool, cpu_count
 import numpy as np
 import matplotlib.pyplot as plt
-from lattice import Lattice2D, RectangularLatticeGeometry, SimulationParameters, SimulationData
+from lattice import Lattice2D, RectangularLatticeGeometry, SimulationParameters, SimulationData, HexagonalLatticeGeometry
 
-def smooth_sine_step(t:float, width: float) -> float:
+
+def smooth_sine_step(t: float, width: float) -> float:
     if t > width:
         return 1
-    return np.sin(0.5*np.pi*t/width)**2
-
+    return np.sin(0.5 * np.pi * t / width) ** 2
 
 
 def comp_excitation(nw):
+    Ny = 40
+    omega = np.sqrt(3) * np.pi / (1.5 * (Ny + 1))  # v_F = a t_hop = sqrt(3) a_nn = sqrt(3), L = 1.5(Ny + 1)
+
     def E(t):
-        return 0.0001*np.sin(0.36959882*nw*t) * smooth_sine_step(t, 5/nw)
-    
+        return 0.0001 * np.sin(omega * nw * t) * smooth_sine_step(t, 10 / nw)
+
     l = Lattice2D(
-        RectangularLatticeGeometry(
-            (10, 16),
+        HexagonalLatticeGeometry(
+            (15, Ny),
         ),
         SimulationParameters(
             t_hop=-1,
             E_amplitude=E,
             E_direction=np.array([0, -1]),
-            h=1/nw,
-            T=2/nw,
+            h=1 / nw,
+            T=60 / nw,
             substeps=200,
         ),
     )
 
-    l.evolve(solver="rk4", decay_time=5)
-    l.save(f"experiments/01-04_response/l_{int(100*nw)}w_100_2.lattice")
-    data = SimulationData.from_lattice(l, omega=0.36959882*nw)
+    l.evolve(solver="rk4", decay_time=7)
+    l.save(f"experiments/01-04_response/l_{int(100*nw)}w_100_hx_small.lattice")
+    data = SimulationData.from_lattice(l, omega=omega * nw)
     return np.abs(np.array(data.M)).mean()
 
 
 if __name__ == "__main__":
-    omega_values = [0.1, 0.8, 1, 1.5, 1.8,  2, 2.2, 3, 5, 10, 15, 20, 50, 100]
-
+    omega_values = np.concatenate(
+        [
+            np.linspace(0.1, 2.0, 8),
+        ]
+    )
 
     # Use Pool to map compute_excitation over omega_values.
     num_cores = cpu_count()
@@ -47,8 +53,11 @@ if __name__ == "__main__":
     import pickle
 
     # Save the results to a file.
-    with open("experiments/01-04_response/responsesG.pkl", "wb") as f:
+    with open("experiments/01-04_response/responses_hx_small_stronger_damp.pkl", "wb") as f:
         pickle.dump((omega_values, responses), f)
+
+    # with open("experiments/01-04_response/responses.pkl", "rb") as f:
+    #     omega_values, responses = pickle.load(f)
 
     # Plot the results.
     plt.plot(omega_values, responses, "o-", label=r"Excitation vs. $\omega$")

@@ -1,5 +1,6 @@
 from typing import List, Tuple
 from abc import ABC, abstractmethod
+import warnings
 import numpy as np
 
 
@@ -158,5 +159,5 @@ class HexagonalLatticeGeometry(BrickwallLatticeGeometry):
         return x, y
 
     def cell_field_gradient(self, f: dict[int, float]) -> dict[int, np.ndarray]:
-        # TODO
-        raise NotImplementedError
+        warnings.warn("No gradient calculation implemented for hexagonal lattice, using brickwall approximation.", UserWarning)
+        return super().cell_field_gradient(f)

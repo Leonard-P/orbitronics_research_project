@@ -10,3 +10,5 @@
 *$py.class
 
 *.lattice
+
+/large_image_files

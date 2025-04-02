@@ -29,7 +29,7 @@ def comp_excitation(nE):
     )
 
     l.evolve(solver="rk4", decay_time=5)
-    l.save(f"experiments/01-04_response/l_{int(100000*nE)}E_100000.lattice")
+    # l.save(f"experiments/01-04_response/l_{int(100000*nE)}E_100000.lattice")
     data = SimulationData.from_lattice(l, omega=2*0.08975714)
     return (np.array(data.M)**2).mean()
 
@@ -46,9 +46,9 @@ if __name__ == "__main__":
 
     import pickle
 
-    # Save the results to a file.
-    with open("experiments/01-04_response/responsesE.pkl", "wb") as f:
-        pickle.dump((E_values, responses), f)
+    # # Save the results to a file.
+    # with open("experiments/01-04_response/responsesE.pkl", "wb") as f:
+    #     pickle.dump((E_values, responses), f)
 
     # Plot the results.
     plt.plot(E_values, responses, "o-", label=r"Excitation vs. $\omega$")
