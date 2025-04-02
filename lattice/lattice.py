@@ -10,7 +10,6 @@ from tqdm import tqdm
 from numpy.typing import NDArray
 from .lattice_geometry import LatticeGeometry, BrickwallLatticeGeometry
 from . import lattice_utils as utils
-from . import lattice_rk4 as rk4
 
 # Units a=1, h_bar=1 and e=1, t_hop=1
 # [P] = e*a/a**2
@@ -138,13 +137,13 @@ class Lattice2D:
 
         print(f"Occupation set to {rho_energy_basis.trace()/self.N:.2f}.")
 
-    def evolve(self, force_reevolve=False, solver="qutip", **solver_kwargs) -> None:
+    def evolve(self, force_reevolve=False, solver="rk4", use_gpu=False, **solver_kwargs) -> None:
         """Evolve the system over time and compute all derived quantities"""
         if self.states is not None and not force_reevolve:
             print("Lattice was already evolved, call with force_reevolve=True to simulate again.")
             return
 
-        if solver == "qutip":
+        if solver.lower() == "qutip":
             if self.simulation_parameters.substeps > 1:
                 warnings.warn("Substeps not implemented for qutip solver. Using substeps=1.")
 
@@ -165,6 +164,12 @@ class Lattice2D:
                 warnings.warn("Use substeps parameter to decrease the number of samples and ensure appropriate h time scale.")
                 self.simulation_parameters.h = self.h * solver_kwargs["sample_every"]
                 sample_every=solver_kwargs["sample_every"]
+
+            if use_gpu:
+                from . import lattice_rk4_gpu as rk4
+            else:
+                from . import lattice_rk4 as rk4
+
             sim = rk4.evolve_density_matrix_rk4(
                 self.H_hop,
                 self.H_onsite,
