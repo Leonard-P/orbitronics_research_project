@@ -1,3 +1,13 @@
+Right now:
+* add bulk orbital current?
+* Maybe define observables in LaTeX, meanwhile check all signs and units. e.g. t_hop in current density?
+- conv test: charge divergence
+- recheck rho_0^2
+- rms instead if <|...|>
+- find beating term (from signal processing, e.g. modulating freq)
+- 11 C atom width horizontal nodes in current density
+- orbital hall conductivity P_orb vs E
+
 # TODOs
 
 ## bugs/fixes/mistakes

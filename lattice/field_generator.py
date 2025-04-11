@@ -52,8 +52,10 @@ class FieldAmplitudeGenerator:
         amp_val = float(amplitude)
 
         def constant_field(t_array: NDArray[np.float64]) -> NDArray[np.float64]:
-            # Return an array of the same shape as t_array filled with the value
-            return np.full_like(t_array, fill_value=amp_val, dtype=t_array.dtype)
+            t = np.asarray(t_array)
+            if t.ndim == 0:
+                return amp_val
+            return np.full_like(t, fill_value=amp_val, dtype=t.dtype)
 
         return constant_field
 

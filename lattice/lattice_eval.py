@@ -1,182 +1,132 @@
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
 import numpy as np
+from tqdm import tqdm
 
-from lattice import Lattice2D
+from .lattice import Lattice2D
+from  .lattice_geometry import LatticeGeometry
 
-@dataclass
+
 class SimulationData:
-    t: np.ndarray
-    E: np.ndarray
-    P: np.ndarray
-    M: np.ndarray
-    P_current: np.ndarray
-    M_current: np.ndarray
-    freqs: np.ndarray
-    E_fft: np.ndarray
-    P_fft: np.ndarray
-    M_fft: np.ndarray
-    P_current_fft: np.ndarray
-    M_current_fft: np.ndarray
-    M_grad: np.ndarray = None
-    M_grad_fft: np.ndarray = None
+    def __init__(self, lattice: Lattice2D, omega: float = 1.0, cutoff_freq: float = float("inf")):
+        self.t = np.array([t * lattice.h for t in range(len(lattice.states))])
+        self.dt = lattice.h
+        self.E = lattice.E(self.t)
+        self.main_freq = omega
+
+        P, P_orb = [], []
+        self.P_rows, self.P_cols, self.P_orb_rows, self.P_orb_cols = [], [], [], []
+
+        for state in tqdm(lattice.states):
+            lattice_state = lattice.compute_lattice_state(state)
+            P.append(lattice_state.polarisation[1])  # TODO support arbitrary polarisation projection
+            P_orb.append(lattice_state.orbital_charge_polarisation[0])
+
+            P_row, P_col = self._polarisation_rows_cols(state, lattice.geometry)
+            self.P_rows.append(P_row)
+            self.P_cols.append(P_col)
+
+            P_orb_row, P_orb_col = SimulationData._orbital_polarisation_rows_cols(lattice_state.orbital_charges, lattice.geometry)
+            self.P_orb_rows.append(P_orb_row)
+            self.P_orb_cols.append(P_orb_col)
+
+        self.P = np.array(P)
+        self.P_orb = np.array(P_orb)
 
     @staticmethod
-    def _get_fft_range(t_signal: np.ndarray, max_freq: float, h: float) -> tuple[list[float], list[float]]:
+    def _get_fft_range(t_signal: np.ndarray, dt: float, max_freq: float = float('inf')) -> tuple[list[float], list[float]]:
         """Computes DFT of t_signal and returns amplitudes for frequencies below max_freq."""
-        freqs = np.fft.fftfreq(len(t_signal), d=h)
+        freqs = np.fft.fftfreq(len(t_signal), d=dt)
         mask = (freqs < max_freq) & (freqs > 0)
         return freqs[mask], np.abs(np.fft.fft(t_signal))[mask]
 
-    @classmethod
-    def from_lattice(cls, l: Lattice2D, omega: float=1.0, cutoff_freq: float = float("inf")) -> None:
-        """Returns time series and FFT data for a simulated lattice."""
-        #t = np.arange(0, (l.steps + 1) * l.h, l.h)
-        t = np.array([t*l.h for t in range(len(l.states))])
+    @staticmethod
+    def _polarisation_rows_cols(
+        state_matrix: np.ndarray, lattice_geometry: LatticeGeometry
+    ) -> tuple[dict[float, np.ndarray], dict[float, np.ndarray]]:
+        P_rows = dict[float, float]()
+        P_cols = dict[float, float]()
+        for i, n in enumerate(state_matrix.diagonal().real):
+            x, y = lattice_geometry.site_to_position(i)
+            # P_rows[round(y, 5)] = P_rows.get(round(y, 5), 0.0) + (x - lattice_geometry.origin[0]) * n
+            # P_cols[round(x, 5)] = P_cols.get(round(x, 5), 0.0) + (y - lattice_geometry.origin[1]) * n
+            P_rows[round(y, 5)] = P_rows.get(round(y, 5), 0.0) + abs(n)
+            P_cols[round(x, 5)] = P_cols.get(round(x, 5), 0.0) + abs(n)
+        return P_rows, P_cols
 
-        E = np.sin(omega * t)
-        P = [state.polarisation[1] for state in l.states]
-        P_current = np.diff(P) / l.h
-        M = [state.orbital_charge_polarisation[0] for state in l.states]
-        M_current = np.diff(M) / l.h
+    @staticmethod
+    def _orbital_polarisation_rows_cols(
+        orbital_charges: dict[int, float], lattice_geometry: LatticeGeometry
+    ) -> tuple[dict[float, np.ndarray], dict[float, np.ndarray]]:
+        P_orb_rows = dict[float, float]()
+        P_orb_cols = dict[float, float]()
+        for i, n in orbital_charges.items():
+            x, y = lattice_geometry.site_to_position(i)
+            # P_orb_rows[round(y, 5)] = P_orb_rows.get(round(y, 5), 0.0) + (x - lattice_geometry.curl_origin[0]) * n
+            # P_orb_cols[round(x, 5)] = P_orb_cols.get(round(x, 5), 0.0) + (y - lattice_geometry.curl_origin[1]) * n
+            P_orb_rows[round(y, 5)] = P_orb_rows.get(round(y, 5), 0.0) + abs(n)
+            P_orb_cols[round(x, 5)] = P_orb_cols.get(round(x, 5), 0.0) + abs(n)
 
-        # P /= np.max(np.abs(P))
-        # P_current /= np.max(np.abs(P_current))
-        # M /= np.max(np.abs(M))
-        # M_current /= np.max(np.abs(M_current))
+        return P_orb_rows, P_orb_cols
 
-        if cutoff_freq is None:
-            cutoff_freq = 10 * omega
-
-        freqs, P_fft = SimulationData._get_fft_range(P, cutoff_freq, l.h)
-        _, E_fft = SimulationData._get_fft_range(E, cutoff_freq, l.h)
-        _, M_fft = SimulationData._get_fft_range(M, cutoff_freq, l.h)
-
-        _, P_current_fft = SimulationData._get_fft_range(P_current, cutoff_freq, l.h)
-        _, M_current_fft = SimulationData._get_fft_range(M_current, cutoff_freq, l.h)
-
-        freqs /= omega / (2 * np.pi)
-
-        M_grad = []
-        for state in l.states:
-            gradient = l.geometry.cell_field_gradient(state.orbital_charges)
-            M_grad.append(np.mean(list(gradient.values()), axis=0))
-
-        M_grad = np.array(M_grad)
-        _, M_grad_fft = SimulationData._get_fft_range(M_grad[:, 0], cutoff_freq, l.h)
-
-        return cls(
-            t=t,
-            E=E,
-            P=P,
-            M=M,
-            P_current=P_current,
-            M_current=M_current,
-            freqs=freqs,
-            E_fft=E_fft,
-            P_fft=P_fft,
-            M_fft=M_fft,
-            P_current_fft=P_current_fft,
-            M_current_fft=M_current_fft,
-            M_grad=M_grad,
-            M_grad_fft=M_grad_fft,
-        )
 
     def plot_simulation_time_series(self, show_window: int = None) -> tuple[plt.Figure, plt.Axes]:
         """Plot time series data from simulation."""
-        fig, axs = plt.subplots(5, 1, figsize=(10, 14))
-
         if show_window:
             t_slice = slice(-show_window, None)
         else:
             t_slice = slice(None)
 
+        P_current = np.pad(np.diff(self.P), pad_width=(1, 0), mode='edge') / self.dt
+        P_orb_current = np.pad(np.diff(self.P_orb), pad_width=(1, 0), mode='edge') / self.dt
+
         plot_data = {
-            "$P_x(t) (e a^{-1})$": self.P,
-            "$\\frac{\\partial P_x}{\\partial t}~(e t_{\\rm hop} a^{-1} \\hbar^{-1})$": np.concatenate((self.P_current, [self.P_current[-1]])),
-            "$\\nabla q_{\\rm orb}(t)~(e a^{-1})$": self.M_grad[:, 0],
-            "$P_{\\rm orb, y}(t)~(e a^{-1})$": self.M,
-            "$\\frac{\\partial P_{\\rm orb, y}(t)}{\\partial t}~(e t_{\\rm hop} a^{-1} \\hbar^{-1})$": np.concatenate((self.M_current, [self.M_current[-1]])),
+            "$P_y(t) (e a^{-1})$": self.P,
+            "$\\frac{\\partial P_y}{\\partial t}~(e t_{\\rm hop} a^{-1} \\hbar^{-1})$": P_current,
+            # "$\\nabla q_{\\rm orb}(t)~(e a^{-1})$": self.M_grad[:, 0],
+            "$P_{\\rm orb, x}(t)~(e a^{-1})$": self.P_orb,
+            "$\\frac{\\partial P_{\\rm orb, x}(t)}{\\partial t}~(e t_{\\rm hop} a^{-1} \\hbar^{-1})$": P_orb_current,
         }
 
+        fig, axs = plt.subplots(len(plot_data), 1, figsize=(10, len(plot_data) * 3))
         cmap = plt.get_cmap("viridis")
 
         for i, (label, data) in enumerate(plot_data.items()):
             axs[i].plot(self.t[t_slice], data[t_slice], label=label, color=cmap(i / len(plot_data)))
             axs[i].set_ylabel(label)
 
-            norm = np.max(np.abs(data))
-            axs[i].plot(self.t[t_slice], self.E[t_slice]*norm, label="$E(t)$", color="tab:blue", alpha=0.2) # ~(t_{\\rm hop} a^{-1} e^{-1})
-            axs[i].legend(loc='upper right')
-
-        # axs[0].plot(self.t[t_slice], self.P[t_slice], label="$P_x(t)$", color="tab:green")
-        # axs[0].set_ylabel("P(t)")
-
-        # axs[1].plot(self.t[:-1][t_slice], self.P_current[t_slice], label="$dP_x/dt$", color="tab:purple")
-        # axs[1].set_ylabel("dP/dt")
-
-        # axs[2].plot(self.t[t_slice], self.M[t_slice], label="$P_{\\rm orb, y}(t)$", color="tab:red")
-        # axs[2].set_ylabel("$P_{\\rm orb, y}(t)$")
-
-        # axs[3].plot(self.t[:-1][t_slice], self.M_current[t_slice], label="$dP_{\\rm orb, y}(t)/dt$", color="tab:orange")
-        # axs[3].set_ylabel("dM/dt")
-
-        # axs[4].plot(self.t[t_slice], self.M_grad[:, 0][t_slice], label="$\\nabla q_{\\rm orb}(t)$", color="tab:red")
-        # axs[4].set_ylabel("$\\nabla q_{\\rm orb}(t)$")
+            norm = np.max(np.abs(data)) / np.max(np.abs(self.E))
+            axs[i].plot(self.t[t_slice], self.E[t_slice] * norm, label="$E(t)$", color="tab:blue", alpha=0.2)  # ~(t_{\\rm hop} a^{-1} e^{-1})
+            axs[i].legend(loc="upper right")
 
         axs[-1].set_xlabel("t")
 
         plt.tight_layout(pad=2)
         return fig, axs
 
-    def plot_simulation_fft(self, cutoff_freq: float = None):
+    def plot_simulation_fft(self, cutoff_freq: float = float('inf')) -> tuple[plt.Figure, plt.Axes]:
         """Plot FFT data from simulation."""
-        fig, axs = plt.subplots(4, 1, figsize=(10, 12))
 
-        max_freq = cutoff_freq if cutoff_freq is not None else self.freqs[-1]
+        freqs, P_fft = SimulationData._get_fft_range(self.P, self.dt, cutoff_freq)
+        _, E_fft = SimulationData._get_fft_range(self.E, self.dt, cutoff_freq)
+        _, P_orb_fft = SimulationData._get_fft_range(self.P_orb, self.dt, cutoff_freq)
 
-        mask = self.freqs <= max_freq
+        freqs /= self.main_freq / (2 * np.pi)
 
-        axs[0].plot(self.freqs[mask], self.E_fft[mask], ".", color="tab:blue",)# width=max_freq / len(self.freqs[mask]))
-        axs[0].set_title("FFT of $E$")
-        axs[0].set_ylabel("Amplitude")
+        plot_data = {
+            "FFT of $E$": E_fft,
+            "FFT of $P_y$": P_fft,
+            "FFT of $P_{\\rm orb, x}$": P_orb_fft,
+        }
 
-        axs[1].plot(self.freqs[mask], self.P_fft[mask], ".", color="tab:green")
-        axs[1].set_title("FFT of $P_x$")
-        axs[1].set_ylabel("Amplitude")
+        fig, axs = plt.subplots(len(plot_data), 1, figsize=(10, len(plot_data) * 3))
 
-        axs[2].plot(self.freqs[mask], self.M_fft[mask], ".", color="tab:red")
-        axs[2].set_title("FFT of $P_{\\rm orb, y}(t)$")
-        axs[2].set_ylabel("Amplitude")
-
-        axs[3].plot(self.freqs[mask], self.M_grad_fft[mask], ".", color="tab:green")
-        axs[3].set_title("FFT of $\\nabla q_{\\rm orb}(t)$")
-        axs[3].set_ylabel("Amplitude")
-
-        axs[3].set_xlabel("Frequency / $\\omega$")
-
-        for ax in axs:
-            # log x and y scale
-            ax.set_xscale("log")
-            ax.set_yscale("log")
+        for i, (label, data) in enumerate(plot_data.items()):
+            axs[i].plot(freqs, data, ".", label=label)
+            axs[i].set_ylabel("Amplitude")
+            axs[i].set_title(label)
+        
+        axs[-1].set_xlabel("Frequency / $\\omega$")
 
         plt.tight_layout()
         return fig, axs
-
-
-if __name__ == "__main__":
-    import sys
-    import lattice
-    import lattice_geometry
-    sys.modules['lattice.lattice'] = lattice
-    sys.modules['lattice.lattice_geometry'] = lattice_geometry
-
-    def E(t):
-        return np.sin(omega*t)
-
-    omega = 2*np.pi / 3.5
-
-    data = SimulationData.from_lattice(Lattice2D.load("results/brickwall_7x14_omega_3-5.lattice"), omega=omega)
-    data.plot_simulation_time_series()
-    
-    plt.show()

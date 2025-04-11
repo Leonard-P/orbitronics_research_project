@@ -10,6 +10,7 @@ from tqdm import tqdm
 from numpy.typing import NDArray
 from .lattice_geometry import LatticeGeometry, BrickwallLatticeGeometry
 from . import lattice_utils as utils
+from .field_generator import FieldAmplitudeGenerator
 
 # Units a=1, h_bar=1 and e=1, t_hop=1
 # [P] = e*a/a**2
@@ -27,23 +28,22 @@ class LatticeState:
 @dataclass
 class SimulationParameters:
     t_hop: float
-    E_amplitude: Union[float, Callable[[float], float]]
+    E_amplitude: Callable[[np.typing.ArrayLike], np.typing.ArrayLike]
     E_direction: np.ndarray
     h: float
     T: float
     substeps: int
-    charge: int = 1  # TODO: Implement charge
     initial_occupation: float = 0.5
 
     @property
     def simulation_n_steps(self):
         return int(self.T / self.h)
-    
+
     @classmethod
     def default(cls):
         return cls(
             t_hop=-1,
-            E_amplitude=1.0,
+            E_amplitude=FieldAmplitudeGenerator.constant(0.01),
             E_direction=np.array([0, -1]),
             h=0.01,
             T=1,
@@ -57,7 +57,6 @@ class Lattice2D:
         self,
         geometry: LatticeGeometry,
         simulation_parameters: SimulationParameters,
-        origin: Optional[Tuple[float, float]] = None,
     ):
         self.geometry = geometry
         self.Lx, self.Ly = geometry.dimensions
@@ -76,13 +75,12 @@ class Lattice2D:
         self.eigen_energies, self.energy_states = linalg.eigh(self.H_hop)
         print("Done.")
 
-        self.states: list[LatticeState] = None
+        self.states: list[NDArray] = None
 
         if simulation_parameters.initial_occupation:
             self.set_fractional_occupation(simulation_parameters.initial_occupation)
         else:
             self.density_matrix = np.zeros((self.N, self.N), dtype=complex)
-
 
     # Properties to access simulation parameters
     @property
@@ -100,20 +98,17 @@ class Lattice2D:
     @property
     def steps(self) -> int:
         return self.simulation_parameters.simulation_n_steps
-    
+
     @property
     def origin(self):
         return self.geometry.origin
 
     @property
     def curl_origin(self):
-        return self.origin - np.array([self.geometry.cell_width, self.geometry.cell_height]) / 2
-    
+        return self.geometry.curl_origin
 
-    def E(self, t) -> Union[float, Callable]:
-        if callable(self.simulation_parameters.E_amplitude):
-            return self.simulation_parameters.E_amplitude(t)
-
+    @property
+    def E(self) -> float:
         return self.simulation_parameters.E_amplitude
 
     def create_hopping_hamiltonian(self) -> np.ndarray:
@@ -137,7 +132,9 @@ class Lattice2D:
 
         print(f"Occupation set to {rho_energy_basis.trace()/self.N:.2f}.")
 
-    def evolve(self, force_reevolve=False, solver="rk4", use_gpu=False, **solver_kwargs) -> None:
+    def evolve(
+        self, force_reevolve: bool = False, solver: str = "rk4", use_gpu: bool = False, field_potential: str = "onsite", **solver_kwargs
+    ) -> None:
         """Evolve the system over time and compute all derived quantities"""
         if self.states is not None and not force_reevolve:
             print("Lattice was already evolved, call with force_reevolve=True to simulate again.")
@@ -155,7 +152,7 @@ class Lattice2D:
             sim = qu.mesolve(H, rho, step_list, **solver_kwargs)
 
             # Compute all derived quantities for each time step
-            self.states = [self.compute_lattice_state(state.data_as(format="ndarray")) for state in sim.states]
+            self.states = [state.data_as(format="ndarray") for state in sim.states]
         elif solver == "rk4":
             dt = self.h / self.simulation_parameters.substeps
             sample_every = self.simulation_parameters.substeps
@@ -163,12 +160,12 @@ class Lattice2D:
             if solver_kwargs.get("sample_every", 1) != 1:
                 warnings.warn("Use substeps parameter to decrease the number of samples and ensure appropriate h time scale.")
                 self.simulation_parameters.h = self.h * solver_kwargs["sample_every"]
-                sample_every=solver_kwargs["sample_every"]
+                sample_every = solver_kwargs["sample_every"]
 
             if use_gpu:
                 from . import lattice_rk4_gpu as rk4
 
-                sim = rk4.evolve_density_matrix_rk4_gpu(
+                self.states = rk4.evolve_density_matrix_rk4_gpu(
                     self.H_hop,
                     self.H_onsite,
                     self.density_matrix,
@@ -179,22 +176,35 @@ class Lattice2D:
                     **solver_kwargs,
                 )
             else:
-                from . import lattice_rk4 as rk4
+                if field_potential == "onsite":
+                    from . import lattice_rk4 as rk4
 
-                sim = rk4.evolve_density_matrix_rk4(
-                    self.H_hop,
-                    self.H_onsite,
-                    self.density_matrix,
-                    self.E,
-                    dt,
-                    self.simulation_parameters.T,
-                    sample_every=sample_every,
-                    **solver_kwargs,
-                )
+                    self.states = rk4.evolve_density_matrix_rk4(
+                        self.H_hop,
+                        self.H_onsite,
+                        self.density_matrix,
+                        self.E,
+                        dt,
+                        self.simulation_parameters.T,
+                        sample_every=sample_every,
+                        **solver_kwargs,
+                    )
 
-            
-            
-            self.states = [self.compute_lattice_state(state) for state in sim]
+                elif field_potential == "peierls":
+                    from . import lattice_rk4_peierls as rk4
+
+                    self.states = rk4.evolve_density_matrix_rk4_peierls(
+                        self.H_hop,
+                        self.density_matrix,
+                        self.E,
+                        dt,
+                        self.simulation_parameters.T,
+                        sample_every=sample_every,
+                        **solver_kwargs,
+                    )
+
+                else:
+                    raise ValueError("Invalid field potential. Use 'onsite' or 'peierls'.")
 
     def compute_lattice_state(self, density_matrix: np.ndarray) -> LatticeState:
         """Compute all derived quantities from the density matrix"""
@@ -248,6 +258,20 @@ class Lattice2D:
         """Calculate time derivative of curl polarization"""
         return (self._orbital_polarisation(curl_J) - self._orbital_polarisation(previous_curl_J)) / self.h
 
+    def _auto_normalize(self) -> Tuple[float, float, float, float]:
+        current_densities = [self._current_density(state) for state in self.states]
+        curl_densities = [self._orbital_charges(current_density) for current_density in current_densities]
+        curl_pol = [self._orbital_polarisation(curl_density) for curl_density in curl_densities]
+
+        curl_norm = max([max(np.abs(list(curl_density.values()))) for curl_density in curl_densities])
+        curl_pol_norm = max([np.linalg.norm(curl_pol_density) for curl_pol_density in curl_pol])
+        pol_norm = max(np.linalg.norm(self._polarisation(state)) for state in self.states)
+        E_norm = max([np.linalg.norm(self.E(i * self.h)) for i in range(self.steps)])
+
+        del current_densities, curl_densities, curl_pol
+
+        return curl_norm, curl_pol_norm, pol_norm, E_norm
+
     def plot_current_density(
         self,
         state_index: int,
@@ -263,13 +287,10 @@ class Lattice2D:
         if self.states is None:
             lattice_state = self.compute_lattice_state(self.density_matrix)
         else:
-            lattice_state = self.states[state_index]
+            lattice_state = self.compute_lattice_state(self.states[state_index])
 
         if auto_normalize:
-            curl_norm = max([max(np.abs(list(state.orbital_charges.values()))) for state in self.states])
-            E_norm = max([np.linalg.norm(self.E(i * self.h)) for i in range(self.steps)])
-            pol_norm = max([np.linalg.norm(state.polarisation) for state in self.states])
-            curl_pol_norm = max([np.linalg.norm(state.orbital_charge_polarisation) for state in self.states])
+            curl_norm, curl_pol_norm, pol_norm, E_norm = self._auto_normalize()
 
         if ax is None:
             _, ax = plt.subplots(figsize=(2 * self.Lx + 2, 2 * self.Ly))
@@ -286,8 +307,8 @@ class Lattice2D:
         for site_idx, curl_val in lattice_state.orbital_charges.items():
             radius = 0.2
             x, y = self.geometry.site_to_position(site_idx)
-            x += 0.5 #self.geometry.cell_width / 2 - radius
-            y += 0.5 #self.geometry.cell_height / 2 - radius
+            x += 0.5  # self.geometry.cell_width / 2 - radius
+            y += 0.5  # self.geometry.cell_height / 2 - radius
             curl_val_norm = curl_val / curl_norm
             curl_circle = plt.Circle(
                 (x, y),
@@ -302,19 +323,14 @@ class Lattice2D:
         arrow_x, arrow_y = self.Lx - 0.1, self.Ly - 2
         polarisation = self._polarisation(lattice_state.density) / pol_norm
         polarisation_current = (
-            self._polarisation_current(lattice_state.density, self.states[state_index - 1].density if state_index > 0 else lattice_state.density)
-            / pol_norm
+            self._polarisation_current(lattice_state.density, self.states[state_index - 1] if state_index > 0 else lattice_state.density) / pol_norm
         )
 
         curl_polarisation = self._orbital_polarisation(lattice_state.orbital_charges) / curl_pol_norm
         curl_polarisation_current = (
             self._orbital_polarisation_current(
                 lattice_state.orbital_charges,
-                (
-                    self._orbital_charges(self._current_density(self.states[state_index - 1].density))
-                    if state_index > 0
-                    else lattice_state.orbital_charges
-                ),
+                self._orbital_charges(self._current_density(self.states[state_index - 1])) if state_index > 0 else lattice_state.orbital_charges,
             )
             / curl_pol_norm
         )
@@ -417,7 +433,7 @@ class Lattice2D:
         if self.states is None:
             state = self.compute_lattice_state(self.density_matrix)
         else:
-            state = self.states[state_index]
+            state = self.compute_lattice_state(self.states[state_index])
 
         # Create figure with two subplots
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(4 * self.Lx, 2 * self.Ly), width_ratios=[4, 2])
@@ -453,7 +469,7 @@ class Lattice2D:
             # ax1.set_title(f"Current Density")
 
             # Plot curl and gradient on right
-            state = self.states[idx]
+            state = self.compute_lattice_state(self.states[idx])
             curl = state.orbital_charges
             grad = self.geometry.cell_field_gradient(curl)
 
@@ -478,10 +494,7 @@ class Lattice2D:
         plt.close(fig)
 
     def save_current_density_animation(self, filename: str, sample_every: int = 1, curl_norm: float = 1, **save_format_kwargs) -> None:
-        curl_norm = max([max(np.abs(list(self._orbital_charges(self._current_density(state.density)).values()))) for state in self.states])
-        E_norm = max([np.abs(self.E(i * self.h)) for i in range(self.steps)])
-        polarisation_norm = max([np.linalg.norm(state.polarisation) for state in self.states])
-        curl_polarisation_norm = max([np.linalg.norm(state.orbital_charge_polarisation) for state in self.states])
+        curl_norm, curl_polarisation_norm, polarisation_norm, E_norm = self._auto_normalize()
 
         n_frames = len(self.states) // sample_every
         fig, ax = plt.subplots(figsize=(2 * self.Lx + 2, 2 * self.Ly))

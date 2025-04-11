@@ -98,6 +98,7 @@ def evolve_density_matrix_rk4(
     total_time: float,
     decay_time: float = float("inf"),
     sample_every: int = 1,
+    first_snapshot_step: int = 0,
     use_sparse: bool = True,
 ) -> List[np.ndarray]:
     """
@@ -127,7 +128,7 @@ def evolve_density_matrix_rk4(
     D_t = initial_density.copy()
 
     for step in trange(n_steps):
-        if sample_every and (step % sample_every == 0):
+        if sample_every and (step >= first_snapshot_step) and (step % sample_every == 0):
             result.append(D_t.copy())
 
         t = step * dt

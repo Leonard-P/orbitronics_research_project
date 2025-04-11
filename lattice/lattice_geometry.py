@@ -17,6 +17,10 @@ class LatticeGeometry(ABC):
         self.cell_width = (flat % self.Lx).max()
         self.cell_height = (flat // self.Lx).max()
 
+    @property
+    def curl_origin(self) -> np.ndarray:
+        return self.origin - np.array([self.cell_width, self.cell_height]) / 2
+
     def site_to_position(self, site_index: int) -> Tuple[int, int]:
         """Convert site index to (x, y) position"""
         return site_index % self.Lx, site_index // self.Lx
