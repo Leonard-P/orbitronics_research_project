@@ -40,7 +40,6 @@ def time_evolution_derivative(
     if sparse.issparse(H):
         commutator = H.dot(density_matrix) - sparse.csr_matrix.dot(density_matrix, H)
     else:
-        # "explicitly" use np.matmul for dense arrays
         commutator = H @ density_matrix - density_matrix @ H
 
     if decay_time != float("inf") and initial_density is not None:
@@ -83,7 +82,7 @@ def rk4_step(
 
     D_next = density_matrix + (1.0 / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
 
-    # Ensure hermiticity (numerical error can cause slight deviations)
+    # Ensure hermiticity
     D_next = (D_next + D_next.T.conj()) / 2.0
 
     return D_next

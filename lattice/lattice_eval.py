@@ -1,34 +1,40 @@
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
 import numpy as np
+import pickle
 from tqdm import tqdm
 
-from .lattice import Lattice2D
+from .lattice2d import Lattice2D
 from  .lattice_geometry import LatticeGeometry
 
 
 class SimulationData:
-    def __init__(self, lattice: Lattice2D, omega: float = 1.0, cutoff_freq: float = float("inf")):
+    def __init__(self, lattice: Lattice2D, omega: float = 1.0, save_rows_cols: bool = False):
         self.t = np.array([t * lattice.h for t in range(len(lattice.states))])
         self.dt = lattice.h
         self.E = lattice.E(self.t)
         self.main_freq = omega
 
         P, P_orb = [], []
-        self.P_rows, self.P_cols, self.P_orb_rows, self.P_orb_cols = [], [], [], []
+        self.P_rows, self.P_cols, self.P_orb_rows, self.P_orb_cols, self.P_matrices, self.P_orb_matrices = [], [], [], [], [], []
 
         for state in tqdm(lattice.states):
             lattice_state = lattice.compute_lattice_state(state)
             P.append(lattice_state.polarisation[1])  # TODO support arbitrary polarisation projection
             P_orb.append(lattice_state.orbital_charge_polarisation[0])
 
-            P_row, P_col = self._polarisation_rows_cols(state, lattice.geometry)
-            self.P_rows.append(P_row)
-            self.P_cols.append(P_col)
+            if save_rows_cols:
+                P_row, P_col = self.polarisation_matrix_to_rows_cols(state, lattice.geometry)
+                self.P_rows.append(P_row)
+                self.P_cols.append(P_col)
 
-            P_orb_row, P_orb_col = SimulationData._orbital_polarisation_rows_cols(lattice_state.orbital_charges, lattice.geometry)
-            self.P_orb_rows.append(P_orb_row)
-            self.P_orb_cols.append(P_orb_col)
+                P_orb_row, P_orb_col = SimulationData.orbital_polarisation_matrix_to_rows_cols(lattice_state.orbital_charges, lattice.geometry)
+                self.P_orb_rows.append(P_orb_row)
+                self.P_orb_cols.append(P_orb_col)
+            
+            else:
+                self.P_matrices.append(lattice_state.polarisation)
+                self.P_orb_matrices.append(lattice_state.orbital_charges)
 
         self.P = np.array(P)
         self.P_orb = np.array(P_orb)
@@ -41,7 +47,7 @@ class SimulationData:
         return freqs[mask], np.abs(np.fft.fft(t_signal))[mask]
 
     @staticmethod
-    def _polarisation_rows_cols(
+    def polarisation_matrix_to_rows_cols(
         state_matrix: np.ndarray, lattice_geometry: LatticeGeometry
     ) -> tuple[dict[float, np.ndarray], dict[float, np.ndarray]]:
         P_rows = dict[float, float]()
@@ -55,7 +61,7 @@ class SimulationData:
         return P_rows, P_cols
 
     @staticmethod
-    def _orbital_polarisation_rows_cols(
+    def orbital_polarisation_matrix_to_rows_cols(
         orbital_charges: dict[int, float], lattice_geometry: LatticeGeometry
     ) -> tuple[dict[float, np.ndarray], dict[float, np.ndarray]]:
         P_orb_rows = dict[float, float]()
@@ -130,3 +136,14 @@ class SimulationData:
 
         plt.tight_layout()
         return fig, axs
+    
+    def save(self, filename: str):
+        """Save simulation data to a file."""
+        with open(filename, 'wb') as f:
+            pickle.dump(self, f)
+
+    @classmethod
+    def load(cls, filename: str) -> "SimulationData":
+        """Load simulation data from a file."""
+        with open(filename, 'rb') as f:
+            return pickle.load(f)

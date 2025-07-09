@@ -4,13 +4,21 @@ import dill
 from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import animation
+from matplotlib import patheffects, animation, cm
+from matplotlib.colors import Normalize
+import matplotlib.patches as mpatches
+from matplotlib.colorbar import ColorbarBase
+from matplotlib.path import Path # For potential advanced arrow drawing, not strictly used here for OAM arcs.
+import matplotlib.transforms as mtransforms
+import matplotlib.lines as mlines
+
 from scipy import linalg
 from tqdm import tqdm
 from numpy.typing import NDArray
-from .lattice_geometry import LatticeGeometry, BrickwallLatticeGeometry
+from .lattice_geometry import LatticeGeometry, BrickwallLatticeGeometry, HexagonalLatticeGeometry
 from . import lattice_utils as utils
 from .field_generator import FieldAmplitudeGenerator
+from matplotlib.patheffects import withStroke # For text outline
 
 # Units a=1, h_bar=1 and e=1, t_hop=1
 # [P] = e*a/a**2
@@ -280,6 +288,7 @@ class Lattice2D:
         E_norm: float = 1,
         curl_pol_norm: float = 1,
         pol_norm: float = 1,
+        current_norm: Optional[float] = None,
         auto_normalize: bool = False,
     ) -> None:
         show_plot = ax is None
@@ -298,10 +307,15 @@ class Lattice2D:
             ax.clear()
 
         site_values = np.real(np.diag(lattice_state.density)) * self.N * self.occupation_fraction
-        utils.plot_site_grid(site_values, self.geometry, ax, vmin=0.0, vmax=1, cmap_name="Greys")
+        utils.plot_site_grid(site_values, self.geometry, ax, vmin=0.0, vmax=1, cmap_name="Greys", print_text_labels=False)
+        if current_norm is None:
+            current_norm = np.max(np.abs(lattice_state.current))
         utils.plot_site_connections(
-            lattice_state.current, self.geometry, ax, max_flow=np.max(np.abs(lattice_state.current)), label_connection_strength=False
+            lattice_state.current, self.geometry, ax, max_flow=current_norm, label_connection_strength=False
         )
+
+        #norm = plt.Normalize(vmin=vmin if vmin is not None else np.nanmin(site_values), vmax=vmax if vmax is not None else np.nanmax(site_values))
+        cmap = plt.get_cmap("RdBu")
 
         # Plot curl indicators
         for site_idx, curl_val in lattice_state.orbital_charges.items():
@@ -309,16 +323,21 @@ class Lattice2D:
             x, y = self.geometry.site_to_position(site_idx)
             x += 0.5  # self.geometry.cell_width / 2 - radius
             y += 0.5  # self.geometry.cell_height / 2 - radius
+            if self.geometry.__class__ == HexagonalLatticeGeometry:
+                x += np.sqrt(3) / 2 - 0.5
             curl_val_norm = curl_val / curl_norm
             curl_circle = plt.Circle(
                 (x, y),
                 radius,
-                facecolor="blue" if curl_val_norm > 0 else "red",
+                facecolor=cmap(curl_val_norm / 2 + 0.5), # "blue" if curl_val_norm > 0 else "red",
                 zorder=2,
             )
             ax.add_patch(curl_circle)
-            ax.text(x, y, f"{curl_val_norm:.2f}", color="white", ha="center", va="center", fontsize=10, zorder=3)
+            #ax.text(x, y, f"{curl_val_norm:.2f}", color="white", ha="center", va="center", fontsize=10, zorder=3, path_effects=[patheffects.withStroke(linewidth=1, foreground="black")])
             ax.plot(x, y, alpha=0)
+
+            if abs(curl_val_norm) >= 0.01:
+                utils.drawCirc(ax, 0.7, x, y, 125, 310, "blue" if curl_val_norm > 0 else "red", lw=1.5, anticlockwise=curl_val_norm > 0)
 
         arrow_x, arrow_y = self.Lx - 0.1, self.Ly - 2
         polarisation = self._polarisation(lattice_state.density) / pol_norm
@@ -342,25 +361,151 @@ class Lattice2D:
 
         Ex, Ey = 1 / E_norm * self.E(state_index * self.h) * self.E_dir
 
-        utils.plot_arrow(ax, arrow_x + 0.5, arrow_y, *polarisation, color="black", label="$\\vec P$")
-        utils.plot_arrow(ax, arrow_x + 1, arrow_y, *polarisation_current, color="blue", label="$\\frac{\\partial \\vec P}{\\partial t}$")
-        utils.plot_arrow(ax, arrow_x, arrow_y, Ex, Ey, color="red", label="$\\vec E$")
-        utils.plot_arrow(ax, arrow_x + 0.5, arrow_y - 2, *curl_polarisation, color="green", label="$\\vec P_{\\rm orb}$")
-        utils.plot_arrow(
-            ax, arrow_x + 0.5, arrow_y - 3, *curl_polarisation_current, color="orange", label="$\\frac{\\partial \\vec P_{\\rm orb}}{\\partial t}$"
-        )
+        #utils.plot_arrow(ax, arrow_x + 0.5, arrow_y, *polarisation, color="black", label="$\\vec P$")
+        #utils.plot_arrow(ax, arrow_x + 1, arrow_y, *polarisation_current, color="blue", label="$\\frac{\\partial \\vec P}{\\partial t}$")
+        #utils.plot_arrow(ax, arrow_x, arrow_y, Ex, Ey, color="red", label="$\\vec E$")
+        #utils.plot_arrow(ax, arrow_x + 0.5, arrow_y - 2, *curl_polarisation, color="green", label="$\\vec P_{\\rm orb}$")
+        #utils.plot_arrow(
+        #    ax, arrow_x + 0.5, arrow_y - 3, *curl_polarisation_current, color="orange", label="$\\frac{\\partial \\vec P_{\\rm orb}}{\\partial t}$"
+        #)
 
-        ax.plot(arrow_x + 3, 0, alpha=0)
+        #ax.plot(arrow_x + 3, 0, alpha=0)
 
         # Add annotation for time step
-        ax.text(
-            self.Lx + 0.5,
-            self.Ly - 0.9,
-            f"t = {state_index*self.h:.2f}",
-            fontsize=14,
-            color="black",
-        )
+        # ax.text(
+        #     self.Lx + 0.5,
+        #     self.Ly - 0.9,
+        #     f"t = {state_index*self.h:.2f}",
+        #     fontsize=14,
+        #     color="black",
+        # )
 
+
+
+        # --- User Parameters ---
+
+        # Main plot area adjustment
+        figure_left_margin = 0.08
+        figure_right_margin = 0.67 # Main plot takes up to 58% of fig width. Tune this!
+        figure_top_margin = 0.92
+        figure_bottom_margin = 0.15 # For P_orb arrow and some breathing room
+
+        # Legend Positioning
+        legend_anchor_to_ax_x = 1.01  # X: Distance from ax right edge (as fraction of ax width)
+        legend_anchor_to_ax_y = 0.5   # Y: Vertical centering relative to ax (0.5 = center)
+        legend_location_on_box = 'center left' # Which part of legend box is anchored
+
+        # Colorbar settings
+        occupation_cmap_name = 'Greys' # Or 'viridis', 'cividis'
+        oam_cmap_name = 'RdBu'       # Good for bipolar OAM data
+        min_occupation, max_occupation = 0.0, 1 # Your actual data range
+        min_oam, max_oam = -1, 1       # Your actual OAM data range (from image)
+
+        # Layout parameters for colorbars
+        cbar_padding_from_legend_fig = -0.17 #Fig fraction: space between legend and cbar stack
+        cbar_width_fig = 0.02               # Fig fraction: width of each cbar
+        cbar_height_relative_to_legend = 1.4 # Each cbar is X% of legend height.
+        cbar_vertical_spacing_fig = 0.2    # Fig fraction: vertical space between cbars
+        colorbar_label_pad = 5             # Space for cbar labels from cbar
+        colorbar_tick_pad = 5               # Space for cbar tick labels from cbar axis
+
+        offset = .15
+
+
+        fig = ax.get_figure()
+
+        # ax.set_title("Honeycomb Lattice Dynamics at t=0.10", fontsize='x-large', pad=15)
+        ax.set_xticks([]) # Cleaner look for the main visualization
+        ax.set_yticks([])
+        ax.set_aspect('equal', adjustable='box') # Important for geometric representations
+
+        # Adjust main plot to make space for legend and other elements
+        fig.subplots_adjust(left=figure_left_margin, right=figure_right_margin,
+                            top=figure_top_margin, bottom=figure_bottom_margin)
+
+        # --- Create Custom Legend Handles and Labels ---
+        handles = []
+        labels = []
+        legend_marker_size = 11
+        legend_handle_length = 1.8 # Length of the line/patch in the legend
+
+            # 2. Inter-site Current
+        handles.append(mlines.Line2D([], [], color='black', linestyle='-', marker='>',
+                                    markersize=7, mfc='black', mec='black', lw=1.5))
+        labels.append(r'Inter-Site Current')
+
+        # 1. Crystal Sites (Orbital Occupation) - Circular patch with border
+        handles.append(mlines.Line2D([], [], color=cm.get_cmap(occupation_cmap_name)(0.6), # Mid-gray
+                                    marker='o', linestyle='None', markersize=legend_marker_size,
+                                    markeredgecolor='black', mew=1.0)) # mew is markeredgewidth
+        labels.append("Site Occupation")
+
+        
+        # 3. Local OAM Density - Circular patch, no visible border
+        # Color is a representative from the RdBu map. Edge color matches face color.
+        oam_legend_patch_color = cm.get_cmap(oam_cmap_name)(0.75) # Light blue from RdBu
+        handles.append(mlines.Line2D([], [], color=oam_legend_patch_color, marker='o', linestyle='None',
+                                    markersize=legend_marker_size,
+                                    markeredgecolor=oam_legend_patch_color)) # Edge same as face
+        labels.append("Local OAM Density")
+
+    
+
+
+        # handles.append(mlines.Line2D([], [], color='green', lw=0, marker='>', markersize=8, fillstyle='full'))
+        # labels.append(r'Average OAM Current')
+
+        # --- Create the Legend ---
+        legend = ax.legend(handles, labels,
+                        # title=legend_title,
+                        loc=legend_location_on_box,
+                        bbox_to_anchor=(legend_anchor_to_ax_x, legend_anchor_to_ax_y),
+                        bbox_transform=ax.transAxes,
+                        fontsize='medium',
+                        title_fontsize='large',
+                        frameon=True, edgecolor='black',
+                        labelspacing=1.2, # Vertical spacing between legend items
+                        handletextpad=0.8, # Horizontal space between handle and text
+                        handlelength=legend_handle_length,
+                        borderpad=0.5) # Padding inside legend border
+        fig.canvas.draw() # IMPORTANT: Draw to calculate legend's true size and position
+
+        # --- Create Colorbars ---
+        legend_bbox_figcoords = legend.get_window_extent().transformed(fig.transFigure.inverted())
+
+        cbar_x_start_fig = legend_bbox_figcoords.x1 + cbar_padding_from_legend_fig
+        each_cbar_height_fig = legend_bbox_figcoords.height * cbar_height_relative_to_legend
+
+        legend_center_y_fig = legend_bbox_figcoords.y0 + legend_bbox_figcoords.height / 2
+        # Y position for top colorbar (its bottom-left corner)
+        top_cbar_y_start_fig = legend_center_y_fig + 0.1
+        # Y position for bottom colorbar (its bottom-left corner)
+        bottom_cbar_y_start_fig = top_cbar_y_start_fig #legend_center_y_fig - each_cbar_height_fig - cbar_vertical_spacing_fig / 2
+
+        # Occupation Colorbar (Top)
+        occ_norm = Normalize(vmin=min_occupation, vmax=max_occupation)
+        occ_sm = cm.ScalarMappable(norm=occ_norm, cmap=plt.get_cmap(occupation_cmap_name))
+        occ_sm.set_array([]) # Important for standalone colorbar
+        cax_occ = fig.add_axes([cbar_x_start_fig, top_cbar_y_start_fig, cbar_width_fig, each_cbar_height_fig])
+        cb_occ = fig.colorbar(occ_sm, cax=cax_occ, orientation='vertical')
+        cb_occ.set_label(r'Site Occupation $/N$', size='medium', labelpad=colorbar_label_pad)
+        cb_occ.ax.tick_params(labelsize='small', pad=colorbar_tick_pad)
+        cb_occ.set_ticks(np.linspace(min_occupation, max_occupation, 3)) # Example: 3 ticks
+
+        # OAM Density Colorbar (Bottom)
+        oam_norm = Normalize(vmin=min_oam, vmax=max_oam)
+        oam_sm = cm.ScalarMappable(norm=oam_norm, cmap=plt.get_cmap(oam_cmap_name))
+        oam_sm.set_array([])
+        cax_oam = fig.add_axes([cbar_x_start_fig + offset, bottom_cbar_y_start_fig, cbar_width_fig, each_cbar_height_fig])
+        cb_oam = fig.colorbar(oam_sm, cax=cax_oam, orientation='vertical')
+        cb_oam.set_label('Local OAM Density ($\\times 10^{-6}$)', size='medium', labelpad=colorbar_label_pad)
+
+        cb_oam.ax.tick_params(labelsize='small', pad=colorbar_tick_pad)
+        oam_ticks = sorted(list(set([min_oam, 0, max_oam]))) # Ticks at min, 0, max
+        if len(oam_ticks) == 1 and oam_ticks[0] == 0: oam_ticks = [0] # Handle case where min=max=0
+        cb_oam.set_ticks(oam_ticks)
+
+        
         ax.set_aspect("equal")
         fig = ax.get_figure()
         fig.tight_layout()

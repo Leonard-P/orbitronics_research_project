@@ -2,7 +2,7 @@ from typing import Callable, List, Optional, Union
 from tqdm import trange
 
 import cupy as cp
-import cupy.sparse as sparse  # Use cupy.sparse
+import cupy.sparse as sparse
 import numpy as np
 from numpy.typing import NDArray
 
@@ -40,9 +40,9 @@ def time_evolution_derivative(
       density_matrix: Density matrix ρ(t) (dense GPU array).
       H_hop: Hopping Hamiltonian (dense or sparse GPU matrix).
       H_onsite: On-site potential Hamiltonian (dense or sparse GPU matrix).
-      amplitude_value: Precomputed field amplitude value for this specific time step.
+      amplitude_value: field amplitude value for this specific time step.
       initial_density_gpu: Initial density matrix ρ₀ (dense GPU array), used for decay term.
-      decay_rate: Precomputed decay rate (1 / τ) as GPU float, or None if no decay.
+      decay_rate: decay rate (1 / τ) as GPU float, or None if no decay.
 
     Returns:
       The time derivative of the density matrix (dense GPU ndarray).
@@ -56,9 +56,8 @@ def time_evolution_derivative(
     d_rho_dt = -1j * commutator
 
     if decay_rate is not None and initial_density is not None:
-        # Ensure decay_term calculation maintains correct type
         decay_term = (initial_density - density_matrix) * decay_rate
-        d_rho_dt += decay_term  # Adding complex + complex
+        d_rho_dt += decay_term
 
     return d_rho_dt
 
@@ -68,15 +67,15 @@ def rk4_step(
     H_hop: GpuMatrix,
     H_onsite: GpuMatrix,
     amp_t: cp.float_,
-    amp_mid: cp.float_,  # Value at t + dt/2 (used twice)
+    amp_mid: cp.float_,  # Value at t + dt/2
     amp_next: cp.float_,  # Value at t + dt
-    dt: cp.float_,  # dt already cast to float_dtype
+    dt: cp.float_,
     initial_density: Optional[cp.ndarray] = None,
-    decay_rate: Optional[cp.float_] = None,  # Precomputed 1/decay_time
+    decay_rate: Optional[cp.float_] = None,  # 1/decay_time
     float_dtype=cp.float64,
 ) -> cp.ndarray:
     """
-    Perform a single Runge-Kutta 4th order step to evolve the density matrix.
+    Perform a single RK4 step to evolve the density matrix.
 
     Parameters:
       density_matrix: Density matrix ρ(t) (dense GPU array).
@@ -87,7 +86,7 @@ def rk4_step(
       amp_next: Field amplitude value at time t + dt.
       dt: Time step (CuPy float scalar).
       initial_density_gpu: Initial density matrix ρ₀ (dense GPU array).
-      decay_rate: Precomputed decay rate (1/τ) as GPU float, or None.
+      decay_rate: decay rate (1/τ) as GPU float, or None.
 
     Returns:
       The density matrix after one RK4 step (dense GPU ndarray).
@@ -110,7 +109,7 @@ def rk4_step(
 
     D_next = density_matrix + one_sixth * dt * (k1 + two * k2 + two * k3 + k4)
 
-    # Ensure hermiticity (numerical error can cause slight deviations)
+    # Ensure hermiticity
     D_next = (D_next + D_next.T.conj()) * one_half
 
     return D_next
@@ -157,8 +156,7 @@ def evolve_density_matrix_rk4_gpu(
     amplitudes_t_np = field_amplitude_vectorized(times)
     amplitudes_mid_np = field_amplitude_vectorized(times_mid)
 
-    # 3. Ensure correct dtype and move precomputed amplitudes to GPU
-    # Use copy=False if the vectorized function already returns the correct dtype
+    # Move to GPU
     amplitudes_t_gpu = cp.asarray(amplitudes_t_np, dtype=float_dtype)
     amplitudes_mid_gpu = cp.asarray(amplitudes_mid_np, dtype=float_dtype)
 
@@ -171,7 +169,6 @@ def evolve_density_matrix_rk4_gpu(
     H_onsite_gpu = cp.asarray(H_onsite, dtype=float_dtype)
 
     if use_sparse:
-        # Use cupy.sparse to create sparse matrices on GPU
         H_hop_gpu = sparse.csr_matrix(H_hop_gpu, dtype=float_dtype)
         H_onsite_gpu = sparse.csr_matrix(H_onsite_gpu, dtype=float_dtype)
 
@@ -182,8 +179,7 @@ def evolve_density_matrix_rk4_gpu(
     dt_gpu = float_dtype(dt)
 
     D_t_gpu = initial_density_gpu.copy()
-    result_gpu: List[cp.ndarray] = []  # Store results on GPU initially
-
+    result_gpu: List[cp.ndarray] = []
     for step in trange(n_steps):
         if sample_every and (step >= first_snapshot_step) and (step % sample_every == 0):
             result_gpu.append(D_t_gpu.copy())
@@ -207,6 +203,5 @@ def evolve_density_matrix_rk4_gpu(
 
     result_gpu.append(D_t_gpu.copy())
 
-    # Move results back to CPU
     result_cpu = [cp.asnumpy(res) for res in result_gpu]
     return result_cpu
