@@ -530,6 +530,8 @@ class DynamicsFrameRecorderGPU(GPUObservable):
         sample_every: int = 1,
         # Model params
         t_hop: float = 1.0,
+        m: float = 1.0,
+        a_nn: float = 1.0,
     ) -> None:
         # NN edges (CPU)
         self._nn_rows_np = np.asarray(nn_rows, dtype=np.int64).ravel()
@@ -543,6 +545,8 @@ class DynamicsFrameRecorderGPU(GPUObservable):
         self._end = int(start_index + steps)
         self._every = max(1, int(sample_every))
         self._t_hop = float(t_hop)
+        self._m = float(m)
+        self._a_nn = float(a_nn)
 
         # Precompute per-cell loop edge index arrays on CPU
         n_cells = self._anchors_np.shape[0]
