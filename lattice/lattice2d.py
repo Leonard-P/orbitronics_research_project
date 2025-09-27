@@ -4,21 +4,18 @@ import dill
 from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import patheffects, animation, cm
+from matplotlib import animation, cm
 from matplotlib.colors import Normalize
-import matplotlib.patches as mpatches
-from matplotlib.colorbar import ColorbarBase
-from matplotlib.path import Path # For potential advanced arrow drawing, not strictly used here for OAM arcs.
-import matplotlib.transforms as mtransforms
 import matplotlib.lines as mlines
 
 from scipy import linalg
 from tqdm import tqdm
 from numpy.typing import NDArray
+
+from .lattice_rk4 import Observable
 from .lattice_geometry import LatticeGeometry, BrickwallLatticeGeometry, HexagonalLatticeGeometry
 from . import lattice_utils as utils
 from .field_generator import FieldAmplitudeGenerator
-from matplotlib.patheffects import withStroke # For text outline
 
 # Units a=1, h_bar=1 and e=1, t_hop=1
 # [P] = e*a/a**2
@@ -29,8 +26,12 @@ class LatticeState:
     density: NDArray[np.complex64]
     current: NDArray[np.float64]
     polarisation: NDArray[np.float64]
+    bulk_polarisation: NDArray[np.float64]
+    boundary_polarisation_dipole: NDArray[np.float64]
+    boundary_polarisation_form: NDArray[np.float64]
     orbital_charges: Dict[int, float]
     orbital_charge_polarisation: NDArray[np.float64]
+    orbital_charge_polarisation_corrected: NDArray[np.float64]
 
 
 @dataclass
@@ -72,7 +73,7 @@ class Lattice2D:
 
         if self.N % 2:
             warnings.warn(
-                "Site number should be even--then integer # of states can be set with half occupation.",
+                "Site number should be even. Then integer # of states can be set with half occupation.",
             )
 
         self.simulation_parameters = simulation_parameters
@@ -121,7 +122,7 @@ class Lattice2D:
 
     def create_hopping_hamiltonian(self) -> np.ndarray:
         """Create the hopping Hamiltonian based on the geometry's hopping matrix"""
-        return self.t_hop * self.geometry.get_hopping_matrix()
+        return self.geometry.get_hopping_matrix(self.t_hop)
 
     def create_onsite_potentials(self) -> np.ndarray:
         """Create the on-site potentials based on the site positions"""
@@ -141,7 +142,7 @@ class Lattice2D:
         print(f"Occupation set to {rho_energy_basis.trace()/self.N:.2f}.")
 
     def evolve(
-        self, force_reevolve: bool = False, solver: str = "rk4", use_gpu: bool = False, field_potential: str = "onsite", **solver_kwargs
+        self, force_reevolve: bool = False, solver: str = "rk4", use_gpu: bool = False, **solver_kwargs
     ) -> None:
         """Evolve the system over time and compute all derived quantities"""
         if self.states is not None and not force_reevolve:
@@ -184,35 +185,28 @@ class Lattice2D:
                     **solver_kwargs,
                 )
             else:
-                if field_potential == "onsite":
-                    from . import lattice_rk4 as rk4
+                from . import lattice_rk4 as rk4
 
-                    self.states = rk4.evolve_density_matrix_rk4(
-                        self.H_hop,
-                        self.H_onsite,
-                        self.density_matrix,
-                        self.E,
-                        dt,
-                        self.simulation_parameters.T,
-                        sample_every=sample_every,
-                        **solver_kwargs,
-                    )
+                self.orbital_polarizations = []
+                class OrbitalPolarizationObservable(Observable):
+                    def measure(self_pol, density_matrix: np.ndarray, step_index:int) -> float:
+                        if (step_index % sample_every):
+                            #return
+                            ...
+                        self.orbital_polarizations.append(self._orbital_polarisation_with_shape(self._current_density(density_matrix)))
 
-                elif field_potential == "peierls":
-                    from . import lattice_rk4_peierls as rk4
+                self.states = rk4.evolve_density_matrix_rk4(
+                    self.H_hop,
+                    self.H_onsite,
+                    self.density_matrix,
+                    self.E,
+                    dt,
+                    self.simulation_parameters.T,
+                    sample_every=sample_every,
+                    observables=[OrbitalPolarizationObservable()],
+                    **solver_kwargs,
+                )
 
-                    self.states = rk4.evolve_density_matrix_rk4_peierls(
-                        self.H_hop,
-                        self.density_matrix,
-                        self.E,
-                        dt,
-                        self.simulation_parameters.T,
-                        sample_every=sample_every,
-                        **solver_kwargs,
-                    )
-
-                else:
-                    raise ValueError("Invalid field potential. Use 'onsite' or 'peierls'.")
 
     def compute_lattice_state(self, density_matrix: np.ndarray) -> LatticeState:
         """Compute all derived quantities from the density matrix"""
@@ -227,6 +221,10 @@ class Lattice2D:
             polarisation=polarisation,
             orbital_charges=curl,
             orbital_charge_polarisation=curl_polarisation,
+            bulk_polarisation=self._orbital_polarisation_bulk(current_matrix),
+            boundary_polarisation_dipole=self._orbital_polarisation_boundary_correction(current_matrix)[0],
+            boundary_polarisation_form=self._orbital_polarisation_boundary_correction(current_matrix)[1],
+            orbital_charge_polarisation_corrected=self._orbital_polarisation_with_shape(current_matrix)
         )
 
     def _current_density(self, state_matrix: np.ndarray) -> np.ndarray:
@@ -257,14 +255,164 @@ class Lattice2D:
                 axis=0,
             )
         )  # [P_orb] = e/a
+    
+    def _orbital_polarisation_with_shape(self, J: np.ndarray) -> np.ndarray:
+        P = np.zeros(2)
+        m = 1 # TODO
+        a_NN = 1 # TODO
+        R = np.array([[0, -1], [1, 0]])
+        for cell_index in self.geometry.get_curl_sites():
+            R_i = np.array(self.geometry.site_to_position(cell_index)) - self.geometry.curl_origin
+            for (k, l) in [(0, 1), (1, 2), (2, self.Lx + 2), (self.Lx + 2, self.Lx + 1), (self.Lx + 1, self.Lx), (self.Lx, 0)]:
+                r_k = np.array(self.geometry.site_to_position(cell_index + k))
+                r_l = np.array(self.geometry.site_to_position(cell_index + l))
+                P += (-m) * a_NN**2 * (
+                    (np.sqrt(3)/2 * R_i)
+                    -  (5 / 24) * (R @ (r_k - r_l))
+                ) * J[cell_index + k, cell_index + l]
+        # TODO Normalize to lattice area etc
+        return P
+
+    def _orbital_polarisation_bulk(self, J: np.ndarray) -> np.ndarray:
+        """Calculate the bulk summand of orbital polarization from the current density. Could be implemented way more efficiently by using the lattice structure."""
+        assert self.geometry.__class__ == HexagonalLatticeGeometry, "Bulk orbital polarization only implemented for hexagonal lattices."
+        m = 1 # TODO
+        a_NN = 1 # TODO
+        P = np.zeros(2)
+        w = m * a_NN**2 * (3 / 2 + 5 / 12)
+        R = np.array([[0, -1], [1, 0]])
+
+        for (k, l) in self.geometry.edges:
+            r_k, r_l = np.array(self.geometry.site_to_position(k)), np.array(self.geometry.site_to_position(l))
+            P += w * J[k, l] * (R @ (r_k - r_l))
+        return P
+
+    def _orbital_polarisation_boundary_correction(self, J: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """This and the bulk polarisation add up to the full orbital polarisation. Since boundary edges are shared only by one unit cell, they were added twice in the bulk term.
+        Results are split into a contribution stemming from the global dipole moment of the loop current momentum and a form term stemming form unbalanced currents within the cell. 
+        """
+        assert self.geometry.__class__ == HexagonalLatticeGeometry, "Boundary correction only implemented for hexagonal lattices."
+       # assert self.Ly % 2 == 0, "Boundary correction only implemented for odd Ly, even would have ill-defined cells at the top/bottom edges."
+       # assert self.Lx % 2, "Boundary correction only implemented for odd Lx, even would have ill-defined cells at the top/bottom edges."
+        
+        m = 1 # TODO
+        a_NN = 1 # TODO
+        P_dipole = np.zeros(2)
+        P_form = np.zeros(2)
+        w_dipole = -m * a_NN**2 * np.sqrt(3)/2 
+        w_form = m * a_NN**2 * 5/24
+        R = np.array([[0, -1], [1, 0]])
+
+        for i in self.geometry.get_curl_sites():
+            R_i = np.array(self.geometry.site_to_position(i))
+            row_index = np.rint(R_i[1] / self.geometry.row_height - 1/6)
+            col_index = np.rint(R_i[0] / self.geometry.col_width)
+
+            kl = []
+            R_offsets = []
+            # Left outer Armchair edge
+            if col_index <= 1:
+                kl.append( (self.Lx, 0) )
+                R_offsets.append(np.array([-2 * self.geometry.col_width, 0]))
+            if col_index == 0 and row_index > 0:
+                kl.append( (0, 1) ) # we dont overlap with the bottom zigzag edge, so add bottom left
+                R_offsets.append(np.array([-self.geometry.col_width, -self.geometry.row_height]))
+            if col_index == 0 and row_index < self.Ly - 2:
+                kl.append( (self.Lx+1, self.Lx) ) # we dont overlap with the top zigzag edge, so add top left
+                R_offsets.append(np.array([-self.geometry.col_width, self.geometry.row_height]))
+            
+            # Right outer Armchair edge
+            if col_index >= self.Lx - 4:
+                kl.append( (2, self.Lx+2) )
+                R_offsets.append(np.array([2 * self.geometry.col_width, 0]))
+            if col_index == self.Lx - 3 and row_index > 0: # we dont overlap with the bottom zigzag edge, so add bottom right
+                kl.append( (1, 2) )
+                R_offsets.append(np.array([self.geometry.col_width, -self.geometry.row_height]))
+            if col_index == self.Lx - 3 and row_index < self.Ly - 2: # we dont overlap with the top zigzag edge, so add top right
+                kl.append( (self.Lx + 2, self.Lx + 1) )
+                R_offsets.append(np.array([self.geometry.col_width, self.geometry.row_height]))
+
+            # Top outer Zigzag edge
+            if row_index == self.Ly - 2:
+                kl.append( (self.Lx + 1, self.Lx) )
+                R_offsets.append(np.array([-self.geometry.col_width, self.geometry.row_height]))
+
+                kl.append( (self.Lx + 2, self.Lx + 1) )
+                R_offsets.append(np.array([self.geometry.col_width, self.geometry.row_height]))
+
+            # Bottom outer Zigzag edge
+            if row_index == 0:
+                kl.append( (0, 1) )
+                R_offsets.append(np.array([-self.geometry.col_width, -self.geometry.row_height]))
+                
+                kl.append( (1, 2) )
+                R_offsets.append(np.array([self.geometry.col_width, -self.geometry.row_height]))
+
+            for (l, k), R_offset in zip(kl, R_offsets):
+                r_k = np.array(self.geometry.site_to_position(i+k))
+                r_l = np.array(self.geometry.site_to_position(i+l))
+                P_form -= w_form * J[i+k, i+l] * (R @ (r_k - r_l))
+                P_dipole -= w_dipole * J[i+k, i+l] * (R_i + R_offset - self.geometry.curl_origin)
+
+        #plt.show()
+        return P_dipole, P_form
+
 
     def _polarisation_current(self, state_matrix: np.ndarray, previous_step_state_matrix: np.ndarray) -> np.ndarray:
         """Calculate time derivative of polarization"""
         return (self._polarisation(state_matrix) - self._polarisation(previous_step_state_matrix)) / self.h
 
-    def _orbital_polarisation_current(self, curl_J: Dict[int, float], previous_curl_J: Dict[int, float]) -> np.ndarray:
+    def _orbital_polarisation_current(self, J: np.ndarray, prev_J: np.ndarray) -> np.ndarray:
         """Calculate time derivative of curl polarization"""
-        return (self._orbital_polarisation(curl_J) - self._orbital_polarisation(previous_curl_J)) / self.h
+        return (self._orbital_polarisation_with_shape(J) - self._orbital_polarisation_with_shape(prev_J)) / self.h
+
+    def orbital_hall_conductivity(self, omega: float, steady_state_start_time: float = 0.0) -> complex:
+        if self.states is None:
+            raise ValueError("Lattice must be evolved before calculating conductivity.")
+        
+        t_values = np.arange(0, self.h * len(self.states), self.h)
+        E_values = self.E(t_values)
+        J_orb_values = np.array(
+            [self._orbital_polarisation_current(self._current_density(self.states[i]), self._current_density(self.states[i-1]))[0] for i in range(1, len(self.states))]
+        )
+
+        start_index = np.argmax(t_values >= steady_state_start_time)
+        t_steady = t_values[start_index:]
+        E_steady = E_values[start_index:]
+        J_orb_steady = J_orb_values[start_index:]
+
+        J_omega = np.fft.fft(J_orb_steady)
+        E_omega = np.fft.fft(E_steady)
+
+        plt.plot(t_steady, E_steady, label="E(t)")
+        plt.plot(t_steady[:-1], J_orb_steady, label="J_orb(t)")
+        plt.xlabel("Time")
+        plt.legend()
+        plt.show()
+
+
+        freqs = np.fft.fftfreq(len(t_steady), self.h) # In Hz
+        freqs2 = np.fft.fftfreq(len(t_steady)-1, self.h) # In Hz
+    
+        plt.plot(freqs, np.abs(E_omega), label="|E(ω)|")
+        plt.plot(freqs2, np.abs(J_omega), label="|J_orb(ω)|")
+        plt.xlim(-3*omega/(2*np.pi), 3*omega/(2*np.pi))
+        plt.xlabel("Frequency (Hz)")
+        plt.legend()
+        plt.yscale("log")
+        
+        # Find the index of the frequency bin closest to our driving frequency.
+        f_drive = omega / (2 * np.pi)
+        index_drive = np.argmin(np.abs(freqs - f_drive))
+
+        plt.vlines([freqs[index_drive]], ymin=1e-5, ymax=np.max(E_omega))
+        plt.show()
+
+
+        sigma_xy = J_omega[index_drive] / E_omega[index_drive]  
+        return sigma_xy
+
+
 
     def _auto_normalize(self) -> Tuple[float, float, float, float]:
         current_densities = [self._current_density(state) for state in self.states]
@@ -348,8 +496,8 @@ class Lattice2D:
         curl_polarisation = self._orbital_polarisation(lattice_state.orbital_charges) / curl_pol_norm
         curl_polarisation_current = (
             self._orbital_polarisation_current(
-                lattice_state.orbital_charges,
-                self._orbital_charges(self._current_density(self.states[state_index - 1])) if state_index > 0 else lattice_state.orbital_charges,
+                lattice_state.current,
+                self._current_density(self.states[state_index - 1]) if state_index > 0 else lattice_state.current,
             )
             / curl_pol_norm
         )

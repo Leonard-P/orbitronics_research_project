@@ -2,8 +2,15 @@ from typing import Callable, List, Optional, Union
 import numpy as np
 from scipy import sparse
 from tqdm import trange
+from abc import ABC, abstractmethod
 
 Matrix = Union[np.ndarray, sparse.spmatrix]
+
+class Observable(ABC):
+    @abstractmethod
+    def measure(self, density_matrix: np.ndarray, step_index: int) -> float:
+        """Measure the observable given the density matrix."""
+        pass
 
 
 def time_evolution_derivative(
@@ -99,6 +106,7 @@ def evolve_density_matrix_rk4(
     sample_every: int = 1,
     first_snapshot_step: int = 0,
     use_sparse: bool = True,
+    observables: Optional[List[Observable]] = None,
 ) -> List[np.ndarray]:
     """
     Evolve the density matrix using the RK4 method.
@@ -129,6 +137,9 @@ def evolve_density_matrix_rk4(
     for step in trange(n_steps):
         if sample_every and (step >= first_snapshot_step) and (step % sample_every == 0):
             result.append(D_t.copy())
+
+        for observable in observables or []:
+            observable.measure(D_t, step)
 
         t = step * dt
         D_t = rk4_step(t, D_t, H_hop, H_onsite, field_amplitude, dt, initial_density, decay_time)

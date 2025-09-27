@@ -11,6 +11,7 @@ class LatticeGeometry(ABC):
         self.dimensions = dimensions
         self.Lx, self.Ly = dimensions
         self.origin = (np.array([self.Lx, self.Ly]) - 1) / 2
+        self._edges = None
 
         self.cell_path = cell_path
         flat = np.array(self.cell_path).flatten()
@@ -20,6 +21,15 @@ class LatticeGeometry(ABC):
     @property
     def curl_origin(self) -> np.ndarray:
         return self.origin - np.array([self.cell_width, self.cell_height]) / 2
+    
+    @property
+    def edges(self) -> List[Tuple[int, int]]:
+        if self._edges is None:
+            a, b = np.where(self.get_hopping_matrix(1) != 0)
+            mask = a < b
+            self._edges = list(zip(a[mask], b[mask]))
+        return self._edges
+
 
     def site_to_position(self, site_index: int) -> Tuple[int, int]:
         """Convert site index to (x, y) position"""
@@ -34,7 +44,7 @@ class LatticeGeometry(ABC):
         """Starting sites for curl calculation"""
 
     @abstractmethod
-    def get_hopping_matrix(self) -> np.ndarray:
+    def get_hopping_matrix(self, t_hop: float) -> np.ndarray:
         """Matrix defining hopping energies between sites"""
 
     @abstractmethod
@@ -50,9 +60,9 @@ class RectangularLatticeGeometry(LatticeGeometry):
         path = [(1, 0), (Lx + 1, 1), (Lx, Lx + 1), (0, Lx)]
         super().__init__(dimensions, path)
 
-    def get_hopping_matrix(self) -> np.ndarray:
-        x_hop = np.tile([1] * (self.Lx - 1) + [0], self.Ly)[:-1]
-        y_hop = np.array([1] * self.Lx * (self.Ly - 1))
+    def get_hopping_matrix(self, t_hop: float) -> np.ndarray:
+        x_hop = np.tile([t_hop] * (self.Lx - 1) + [0], self.Ly)[:-1]
+        y_hop = np.array([t_hop] * self.Lx * (self.Ly - 1))
 
         H = np.diag(x_hop, 1) + np.diag(y_hop, self.Lx)
         return H + H.conj().T
@@ -81,7 +91,7 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
         path = np.array([(1, 0), (2, 1), (Lx + 2, 2), (Lx + 1, Lx + 2), (Lx, Lx + 1), (0, Lx)])
         super(RectangularLatticeGeometry, self).__init__(dimensions, path)
 
-    def get_hopping_matrix(self) -> np.ndarray:
+    def get_hopping_matrix(self, t_hop: float) -> np.ndarray:
         if self.Lx % 2 == 0:
             y_hop_row = np.tile([0, 1], self.Lx // 2)
             y_hop = np.concatenate([y_hop_row, 1 - y_hop_row] * (self.Ly // 2 - 1) + [y_hop_row] + [1 - y_hop_row] * (self.Ly % 2))
@@ -91,7 +101,7 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
 
         y_mask = 1 - (np.diag(y_hop, self.Lx) + np.diag(y_hop, -self.Lx))
 
-        return super().get_hopping_matrix() * y_mask
+        return super().get_hopping_matrix(t_hop) * y_mask
 
     def get_curl_sites(self) -> List[int]:
         return [
@@ -146,10 +156,10 @@ class BrickwallLatticeGeometry(RectangularLatticeGeometry):
 class HexagonalLatticeGeometry(BrickwallLatticeGeometry):
     def __init__(self, dimensions):
         super().__init__(dimensions)
-        
+
         self.row_height = 1.5
         self.col_width = np.sqrt(3) / 2
-        self.origin = np.array([(self.Lx-1) * self.col_width, (self.Ly-1) * self.row_height]) / 2
+        self.origin = np.array([(self.Lx - 1) * self.col_width, (self.Ly - 1) * self.row_height]) / 2
 
     def site_to_position(self, site_index: int) -> Tuple[float, float]:
         row = site_index // self.Lx
