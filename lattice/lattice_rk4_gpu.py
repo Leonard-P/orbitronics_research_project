@@ -473,6 +473,7 @@ class OrbitalPolarisationWithShapeGPU(GPUObservable):
         self._cell_pos = self._pos[self._anchors]
         # Storage for results
         self._values = cp.empty((n_steps, 2), dtype=float_dtype)
+        self._index = 0
 
     def measure_gpu(self, density_gpu: cp.ndarray, step: int) -> None:
         if self._sample_every and step % self._sample_every != 0:
@@ -495,10 +496,11 @@ class OrbitalPolarisationWithShapeGPU(GPUObservable):
         P_vec = c1 * term1_vec + c2 * term2_vec
         # Optional normalisation by Area to keep scale comparable with other observables
         P_vec = P_vec / self._A
-        self._values[step, :] = P_vec
+        self._values[self._index, :] = P_vec
+        self._index += 1
 
     def finalize(self):
-        self.values = cp.asnumpy(self._values)
+        self.values = cp.asnumpy(self._values[: self._index])
         return self.values
 
 
@@ -625,8 +627,9 @@ class DynamicsFrameRecorderGPU(GPUObservable):
         self.densities = cp.asnumpy(self._densities[:F])
         self.bond_currents = cp.asnumpy(self._bond_currents[:F])
         self.orbital_curl = cp.asnumpy(self._curl[:F])
-        return {
+        self.values = {
             "densities": self.densities,
             "bond_currents": self.bond_currents,
             "orbital_curl": self.orbital_curl,
         }
+        return self.values

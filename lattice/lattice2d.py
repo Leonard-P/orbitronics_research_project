@@ -136,7 +136,7 @@ class Lattice2D:
 
     def set_fractional_occupation(self, occupation_fraction=0.5) -> None:
         rho_energy_basis = np.diag([1 if i / self.N < occupation_fraction else 0 for i in range(self.N)])
-        self.density_matrix = 1 / (occupation_fraction * self.N) * self.energy_states @ rho_energy_basis @ self.energy_states.T.conj()
+        self.density_matrix =  self.energy_states @ rho_energy_basis @ self.energy_states.T.conj()
         self.occupation_fraction = occupation_fraction
 
         print(f"Occupation set to {rho_energy_basis.trace()/self.N:.2f}.")
