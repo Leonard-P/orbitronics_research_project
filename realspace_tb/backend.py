@@ -12,7 +12,6 @@ from scipy import sparse
 from typing import TypeAlias
 import types
 
-2
 try:
     import cupy as cp
     try:
@@ -25,9 +24,17 @@ except ImportError:
     cpsp = None
     _cupy_available = False
 
+def xp() -> types.ModuleType:
+    """Return the active array module (NumPy or CuPy)."""
+    return cp if USE_GPU else np
+
+def xp_sparse() -> types.ModuleType:
+    """Return the active sparse array module (scipy sparse or cupy sparse)."""
+    return cpsp if USE_GPU else sparse
+
 USE_GPU: bool = False
-DTYPE: type = np.complex128
-FDTYPE: type = np.float64
+DTYPE: type = xp().complex128
+FDTYPE: type = xp().float64
 
 Array: TypeAlias = "NDArray[np.complex128] | NDArray[np.complex64] | NDArray[np.float64] | NDArray[np.float32] | cp.ndarray"
 SparseArray: TypeAlias = "csr_matrix | cpsp.spmatrix"
@@ -56,11 +63,3 @@ def set_backend(use_gpu: bool = False, precision: str = "double") -> None:
         FDTYPE = xp().float64
     else:
         raise ValueError("Precision must be 'single' or 'double'.")
-
-def xp() -> types.ModuleType:
-    """Return the active array module (NumPy or CuPy)."""
-    return cp if USE_GPU else np
-
-def xp_sparse() -> types.ModuleType:
-    """Return the active sparse array module (scipy sparse or cupy sparse)."""
-    return cpsp if USE_GPU else sparse

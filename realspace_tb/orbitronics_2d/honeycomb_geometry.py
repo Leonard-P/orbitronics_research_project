@@ -4,6 +4,8 @@ import numpy as np
 
 class HoneycombLatticeGeometry(Lattice2DGeometry):
     def __init__(self, Lx: int, Ly: int):
+        super().__init__()
+        
         self.Lx = Lx
         self.Ly = Ly
 
@@ -43,7 +45,7 @@ class HoneycombLatticeGeometry(Lattice2DGeometry):
                     neighbor_index = neighbor_row * self.Lx + neighbor_col
                     neighbors.append([index, neighbor_index])
 
-        self._nearest_neighbors = np.array(neighbors)
+        self._nearest_neighbors = np.array(neighbors, dtype=int)
         return self._nearest_neighbors
 
     @property
