@@ -15,7 +15,7 @@ from .orbitronics_2d.observables import (
     LatticeFrameObservable
 )
 from .orbitronics_2d.ohc import ohc
-from .orbitronics_2d.plot_utils import save_simulation_animation
+from .orbitronics_2d.plot_utils import save_simulation_animation, show_simulation_frame
 
 __all__ = [
     "RK4NeumannSolver",
@@ -29,4 +29,5 @@ __all__ = [
     "LatticeFrameObservable",
     "ohc",
     "save_simulation_animation",
+    "show_simulation_frame",
 ]

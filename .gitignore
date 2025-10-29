@@ -11,6 +11,7 @@
 
 *.lattice
 
-**/.DS_Store
 
 /large_image_files
+**/.DS_Store
+.DS_Store
