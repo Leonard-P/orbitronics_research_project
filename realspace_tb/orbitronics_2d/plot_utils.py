@@ -3,6 +3,7 @@ Animation utilities for plotting and rendering animations of 2D Lattice geometri
 
 """
 
+from typing import cast
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
@@ -118,8 +119,9 @@ def save_simulation_animation(
         oam_arrow_threshold: threshold for showing OAM circular arrows; if None, set to 1% of oam_vmax
         frame_texts: optional list of strings to use as title text per frame; if None, uses frame index "frame i/F"
     """
-    densities = lattice_frame_obs.values["densities"]  # (F, N)
-    bond_currents = lattice_frame_obs.values["currents"]  # (F, E)
+    animation_values = cast(dict[str, FCPUArray], lattice_frame_obs.values)
+    densities = animation_values["densities"]  # (F, N)
+    bond_currents = animation_values["currents"]  # (F, E)
 
     F, N = densities.shape # Number of frames, number of sites
     _, E = bond_currents.shape # number of edges
@@ -212,14 +214,13 @@ def save_simulation_animation(
     curl_sc = None
     curl_sites = None
     curl_vals0 = None
-    curl_all = None
     # For circular arrows
     curl_ccw_arcs = []
     curl_ccw_heads = []
     curl_cw_arcs = []
     curl_cw_heads = []
     if show_oam_indicators:
-        curl_all = lattice_frame_obs.values["plaquette_oam"]  # (F, C)
+        curl_all = animation_values["plaquette_oam"]  # (F, C)
         curl_vals0 = np.asarray(curl_all[0])
         curl_sites = lattice_frame_obs.plaquette_anchor_indices
 
@@ -231,21 +232,24 @@ def save_simulation_animation(
         cx = curl_pos[:, 0] + np.sqrt(3) / 2
         cy = curl_pos[:, 1] + 0.5
 
+        oam_vmax_f: float
         if oam_vmax is None:
-            oam_vmax = float(np.max(np.abs(curl_all))) if np.size(curl_all) else 1.0
-            if oam_vmax == 0:
-                oam_vmax = 1.0
-            
-        if oam_arrow_threshold is None:
-            oam_arrow_threshold = 0.01 * oam_vmax
+            oam_vmax_f = float(np.max(np.abs(curl_all))) if np.size(curl_all) else 1.0
+            if oam_vmax_f == 0:
+                oam_vmax_f = 1.0
+        else:
+            oam_vmax_f = float(oam_vmax)
+
+        # Threshold as definite float as well
+        oam_arrow_threshold_f: float = (0.01 * oam_vmax_f) if oam_arrow_threshold is None else float(oam_arrow_threshold)
 
         curl_sc = ax.scatter(
             cx,
             cy,
             c=curl_vals0,
             cmap=oam_cmap,
-            vmin=-oam_vmax,
-            vmax=oam_vmax,
+            vmin=-oam_vmax_f,
+            vmax=oam_vmax_f,
             s=oam_marker_size,
             edgecolor="none",
             zorder=3,
@@ -324,8 +328,8 @@ def save_simulation_animation(
             # Initialize visibility according to first frame
             norm0 = curl_vals0 / (oam_vmax if oam_vmax else 1.0)
             for i, v in enumerate(norm0):
-                show_cw = (v >= oam_arrow_threshold)
-                show_ccw = (v <= -oam_arrow_threshold)
+                show_cw = (v >= oam_arrow_threshold_f)
+                show_ccw = (v <= -oam_arrow_threshold_f)
                 curl_ccw_arcs[i].set_visible(show_ccw)
                 curl_ccw_heads[i].set_visible(show_ccw)
                 curl_cw_arcs[i].set_visible(show_cw)
@@ -408,7 +412,7 @@ def save_simulation_animation(
     # Second (bottom) colorbar: OAM/curl if available
 
     if show_oam_indicators and curl_sc is not None:
-        oam_norm = Normalize(vmin=-oam_vmax, vmax=oam_vmax)
+        oam_norm = Normalize(vmin=-oam_vmax_f, vmax=oam_vmax_f)
         oam_sm = cm.ScalarMappable(norm=oam_norm, cmap=plt.get_cmap(oam_cmap))
         oam_sm.set_array([])
         oam_y = max(0.06, occ_y - cbar_spacing - cbar_h)
@@ -420,7 +424,7 @@ def save_simulation_animation(
         cb_oam.set_label("Plaquette OAM ($\\hbar$)", size="small")
         cb_oam.ax.tick_params(labelsize="small")
 
-    def update(frame: int):
+    def update(frame: int) -> tuple[plt.Artist, ...]:
         d = densities[frame]
         sc.set_array(d)
         # Update flow-direction arrows
@@ -442,8 +446,8 @@ def save_simulation_animation(
                 denom = (oam_vmax if oam_vmax else (np.max(np.abs(vals)) or 1.0))
                 normv = vals / denom
                 for i, v in enumerate(normv):
-                    show_cw = (v >= oam_arrow_threshold)
-                    show_ccw = (v <= -oam_arrow_threshold)
+                    show_cw = (v >= oam_arrow_threshold_f)
+                    show_ccw = (v <= -oam_arrow_threshold_f)
                     curl_ccw_arcs[i].set_visible(show_ccw)
                     curl_ccw_heads[i].set_visible(show_ccw)
                     curl_cw_arcs[i].set_visible(show_cw)
