@@ -1,5 +1,5 @@
 from typing import Callable, List
-from .backend import xp, Array, SparseArray, USE_GPU
+from . import backend as B
 from scipy.sparse import csr_matrix
 from tqdm import trange
 from .hamiltonian import Hamiltonian
@@ -11,11 +11,11 @@ class RK4NeumannSolver:
     def _time_evolution_derivative(
         self,
         t: float,
-        rho: Array,
-        H: SparseArray,
-        rho_0: "Array | None" = None,
+        rho: B.Array,
+        H: B.SparseArray,
+        rho_0: "B.Array | None" = None,
         tau: float = float("inf"),
-    ) -> Array:
+    ) -> B.Array:
         """
         Calculate the time derivative of the density matrix from damped Neumann equation:
         ∂ρ/∂t = -i[H, ρ] + (ρ₀ - ρ) / τ
@@ -45,10 +45,10 @@ class RK4NeumannSolver:
     def _rk4_step(
         self,
         t: float,
-        rho: Array,
-        H: SparseArray,
+        rho: B.Array,
+        H: B.SparseArray,
         dt: float,
-        rho_0: "Array | None" = None,
+        rho_0: "B.Array | None" = None,
         tau: float = float("inf"),
     ) -> None:
         """
@@ -75,7 +75,7 @@ class RK4NeumannSolver:
         # Ensure hermiticity
         rho[:] = (rho + rho.T.conj()) / 2.0
 
-    def evolve(self, rho: Array, H: Hamiltonian, dt: float, total_time: float, rho_0: "Array | None" = None, tau: float = float("inf"), observables: list[Observable] | None = None) -> None:
+    def evolve(self, rho: B.Array, H: Hamiltonian, dt: float, total_time: float, rho_0: "B.Array | None" = None, tau: float = float("inf"), observables: list[Observable] | None = None) -> None:
         """
         Evolve the density matrix using the RK4 method.
 

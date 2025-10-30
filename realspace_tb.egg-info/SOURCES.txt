@@ -1,15 +1,5 @@
 README.md
 setup.py
-lattice/__init__.py
-lattice/animation_utils.py
-lattice/field_generator.py
-lattice/lattice2d.py
-lattice/lattice_eval.py
-lattice/lattice_geometry.py
-lattice/lattice_rk4.py
-lattice/lattice_rk4_gpu.py
-lattice/lattice_rk4_peierls.py
-lattice/lattice_utils.py
 realspace_tb/__init__.py
 realspace_tb/backend.py
 realspace_tb/hamiltonian.py

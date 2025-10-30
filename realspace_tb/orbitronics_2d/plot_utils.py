@@ -17,7 +17,7 @@ from traitlets import List
 from realspace_tb.orbitronics_2d.honeycomb_geometry import HoneycombLatticeGeometry
 
 from .lattice_2d_geometry import Lattice2DGeometry
-from ..backend import FCPUArray
+from .. import backend as B
 from .observables import LatticeFrameObservable
 
 
@@ -89,7 +89,7 @@ def _create_scene(
     frame_texts: list[str] | None = None,
 ) -> tuple[plt.Figure, plt.Axes, dict[str, Any]]:
     """Builds the static scene (figure, artists, legend, colorbars) and returns a context dict for updating per-frame."""
-    animation_values = cast(dict[str, FCPUArray], lattice_frame_obs.values)
+    animation_values = cast(dict[str, B.FCPUArray], lattice_frame_obs.values)
     densities = animation_values["densities"]  # (F, N)
     bond_currents = animation_values["currents"]  # (F, E)
 

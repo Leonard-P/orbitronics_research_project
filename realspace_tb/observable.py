@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from .backend import Array, SparseArray, CPUArray
+from . import backend as B
 
 
 class Observable(ABC):
@@ -37,7 +37,7 @@ class Observable(ABC):
         return self._start_time <= t <= self._end_time and step_index % self._stride == 0
 
     @abstractmethod
-    def measure(self, rho: Array, t: float, step_index: int) -> None:
+    def measure(self, rho: B.Array, t: float, step_index: int) -> None:
         """Measure the observable given the density matrix."""
         ...
 
@@ -47,5 +47,5 @@ class Observable(ABC):
         """
         ...
 
-    values: "CPUArray | dict[str, CPUArray]"
-    measurement_times: CPUArray
+    values: "B.CPUArray | dict[str, B.CPUArray]"
+    measurement_times: B.CPUArray

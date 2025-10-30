@@ -35,6 +35,7 @@ def xp_sparse() -> types.ModuleType:
 USE_GPU: bool = False
 DTYPE: type = xp().complex128
 FDTYPE: type = xp().float64
+FCPUDTYPE: type = np.float64
 
 Array: TypeAlias = "NDArray[np.complex128] | NDArray[np.complex64] | NDArray[np.float64] | NDArray[np.float32] | cp.ndarray"
 SparseArray: TypeAlias = "csr_matrix | cpsp.spmatrix"
@@ -49,7 +50,7 @@ def set_backend(use_gpu: bool = False, precision: str = "double") -> None:
         use_gpu: whether to use CuPy (GPU) or NumPy (CPU)
         precision: 'single' or 'double'
     """
-    global USE_GPU, DTYPE, FDTYPE
+    global USE_GPU, DTYPE, FDTYPE, FCPUDTYPE
     USE_GPU = use_gpu
 
     if use_gpu and not _cupy_available:
@@ -58,8 +59,10 @@ def set_backend(use_gpu: bool = False, precision: str = "double") -> None:
     if precision == "single":
         DTYPE = xp().complex64
         FDTYPE = xp().float32
+        FCPUDTYPE = np.float32
     elif precision == "double":
         DTYPE = xp().complex128
         FDTYPE = xp().float64
+        FCPUDTYPE = np.float64
     else:
         raise ValueError("Precision must be 'single' or 'double'.")

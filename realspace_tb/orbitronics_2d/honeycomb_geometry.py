@@ -1,5 +1,5 @@
 from .lattice_2d_geometry import Lattice2DGeometry
-from ..backend import FCPUArray
+from .. import backend as B
 import numpy as np
 
 class HoneycombLatticeGeometry(Lattice2DGeometry):
@@ -19,11 +19,11 @@ class HoneycombLatticeGeometry(Lattice2DGeometry):
         self.plaquette_area = np.sqrt(3) * 3 / 2
 
         self._origin = np.array([(self.Lx - 1) * self._col_width, (self.Ly - 1) * self._row_height]) / 2
-        self._nearest_neighbors: "FCPUArray | None" = None
-        self._bravais_site_indices: "FCPUArray | None" = None
+        self._nearest_neighbors: "B.FCPUArray | None" = None
+        self._bravais_site_indices: "B.FCPUArray | None" = None
 
     @property
-    def nearest_neighbors(self) -> FCPUArray:
+    def nearest_neighbors(self) -> B.FCPUArray:
         """Array of nearest neighbor indices [[i, j], ...] = <i, j>"""
         if self._nearest_neighbors is not None:
             return self._nearest_neighbors
@@ -49,7 +49,7 @@ class HoneycombLatticeGeometry(Lattice2DGeometry):
         return self._nearest_neighbors
 
     @property
-    def bravais_site_indices(self) -> FCPUArray:
+    def bravais_site_indices(self) -> B.FCPUArray:
         """List of all indices that form the Bravais lattice."""
         if self._bravais_site_indices is not None:
             return self._bravais_site_indices
@@ -59,11 +59,11 @@ class HoneycombLatticeGeometry(Lattice2DGeometry):
         return self._bravais_site_indices
 
     @property
-    def origin(self) -> FCPUArray:
+    def origin(self) -> B.FCPUArray:
         """Origin of the lattice as real space vector."""
         return self._origin
 
-    def index_to_position(self, index: int) -> FCPUArray:
+    def index_to_position(self, index: int) -> B.FCPUArray:
         row = index // self.Lx
         col = index % self.Lx
 
@@ -72,4 +72,4 @@ class HoneycombLatticeGeometry(Lattice2DGeometry):
         x = self._col_width * (index % self.Lx)
         y = self._row_height * row + y_offset
 
-        return np.array([x, y])
+        return np.array([x, y], dtype=B.FCPUDTYPE)

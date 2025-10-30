@@ -1,6 +1,6 @@
 from ..observable import Observable
 from .honeycomb_geometry import HoneycombLatticeGeometry
-from ..backend import FCPUArray, xp, Array, DTYPE, FDTYPE, USE_GPU
+from .. import backend as B
 from typing import cast
 import numpy as np
 
@@ -82,30 +82,30 @@ class PlaquetteOAMObservable(Observable):
         cols_cpu = cols_cpu[cell_mask]
 
         # move rows/cols to active backend for later advanced indexing
-        self._rows = xp().array(rows_cpu, dtype=xp().int64)
-        self._cols = xp().array(cols_cpu, dtype=xp().int64)
+        self._rows = B.xp().array(rows_cpu, dtype=B.xp().int64)
+        self._cols = B.xp().array(cols_cpu, dtype=B.xp().int64)
 
     def setup(self, dt: float, total_steps: int) -> int:
         n_measurements = super().setup(dt, total_steps)
-        self._values = xp().empty((n_measurements, self._n_cells), dtype=FDTYPE)
-        self._measurement_times = xp().empty((n_measurements,), dtype=FDTYPE)
+        self._values = B.xp().empty((n_measurements, self._n_cells), dtype=B.FDTYPE)
+        self._measurement_times = B.xp().empty((n_measurements,), dtype=B.FDTYPE)
         self._index = 0
 
         return n_measurements
 
-    def measure(self, rho: Array, t: float, step_index: int) -> None:
+    def measure(self, rho: B.Array, t: float, step_index: int) -> None:
         if not self._should_measure(t, step_index):
             return
 
         # Bond currents along the oriented loop edges for each cell
-        I_edges = 2.0 * xp().imag(rho[self._rows, self._cols])
-        self._values[self._index, :] = self._c * xp().sum(I_edges, axis=1)  # (n_cells,)
+        I_edges = 2.0 * B.xp().imag(rho[self._rows, self._cols])
+        self._values[self._index, :] = self._c * B.xp().sum(I_edges, axis=1)  # (n_cells,)
         self._measurement_times[self._index] = t
         self._index += 1
 
     def finalize(self) -> None:
         """Some measurement windows leave the last _values entry unfilled."""
-        if USE_GPU:
+        if B.USE_GPU:
             # if backend was set to GPU, _values is a cupy array, so move to CPU
             self.values = self._values[: self._index].asnumpy()
             self.measurement_times = self._measurement_times[: self._index].asnumpy()
@@ -135,15 +135,15 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
             measurement_stride,
         )
 
-        self._origin = xp().array(geometry.origin)
+        self._origin = B.xp().array(geometry.origin)
         self._m = electron_mass
-        self._c1 = -self._m * (xp().sqrt(3.0) / 2.0)
+        self._c1 = -self._m * (B.xp().sqrt(3.0) / 2.0)
         self._c2 = -self._m * (5.0 / 24.0)
         self._A = self._n_cells * geometry.plaquette_area
 
-        site_positions = xp().array(
+        site_positions = B.xp().array(
             [geometry.index_to_position(i) for i in range(geometry.Lx * geometry.Ly)],
-            dtype=FDTYPE,
+            dtype=B.FDTYPE,
         )
 
         # Edge vectors r_l - r_k per (cell, edge)
@@ -151,33 +151,33 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
             site_positions[self._cols] - site_positions[self._rows]
         )  # (n_cells, L, 2)
         # Their 90° rotation R @ (r_l - r_k) with R @ v = [-v_y, v_x]
-        self._rot_edge_vecs = xp().stack(
+        self._rot_edge_vecs = B.xp().stack(
             (-self._edge_vecs[..., 1], self._edge_vecs[..., 0]), axis=-1
         )  # (n_cells, L, 2)
 
         # per-plaquette positions using anchor site positions; index with backend array
         self._plaquette_positions = site_positions[
-            xp().array(self._plaquette_anchors_cpu, dtype=np.int64)
+            B.xp().array(self._plaquette_anchors_cpu, dtype=np.int64)
         ]
 
     def setup(self, dt: float, total_steps: int) -> int:
         n_measurements = super().setup(dt, total_steps)
-        self._values = xp().empty((n_measurements, 2), dtype=FDTYPE)
-        self._measurement_times = xp().empty((n_measurements,), dtype=FDTYPE)
+        self._values = B.xp().empty((n_measurements, 2), dtype=B.FDTYPE)
+        self._measurement_times = B.xp().empty((n_measurements,), dtype=B.FDTYPE)
         self._index = 0
 
         return n_measurements
 
-    def measure(self, rho: Array, t: float, step_index: int) -> None:
+    def measure(self, rho: B.Array, t: float, step_index: int) -> None:
         if not self._should_measure(t, step_index):
             return
 
         # Bond currents along the oriented loop edges for each cell
         # I_ij = 2 * (t_hop = 1) * Im(rho_ij)
-        I_edges = 2.0 * xp().imag(rho[self._rows, self._cols])
+        I_edges = 2.0 * B.xp().imag(rho[self._rows, self._cols])
 
         # R_alpha * sum_edges I_edge per cell
-        curl_per_cell = xp().sum(I_edges, axis=1)  # (n_cells,)
+        curl_per_cell = B.xp().sum(I_edges, axis=1)  # (n_cells,)
         centered = self._plaquette_positions - self._origin  # (n_cells, 2)
         term1_vec = centered.T @ curl_per_cell  # (2,)
 
@@ -185,7 +185,7 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
         weighted_rot_edges = (I_edges[..., None] * self._rot_edge_vecs).sum(
             axis=1
         )  # (n_cells, 2)
-        term2_vec = xp().sum(weighted_rot_edges, axis=0)  # (2,)
+        term2_vec = B.xp().sum(weighted_rot_edges, axis=0)  # (2,)
 
         P_vec = (self._c1 * term1_vec + self._c2 * term2_vec) / self._A
         self._values[self._index, :] = P_vec
@@ -194,7 +194,7 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
 
     def finalize(self) -> None:
         """Some measurement windows leave the last _values entry unfilled."""
-        if USE_GPU:
+        if B.USE_GPU:
             # if backend was set to GPU, _values is a cupy array, so move to CPU
             self.values = self._values[: self._index].asnumpy()
             self.measurement_times = self._measurement_times[: self._index].asnumpy()
@@ -220,23 +220,23 @@ class SiteDensityObservable(Observable):
 
     def setup(self, dt: float, total_steps: int) -> int:
         n_measurements = super().setup(dt, total_steps)
-        self._values = xp().empty((n_measurements, self._N), dtype=FDTYPE)
-        self._measurement_times = xp().empty((n_measurements,), dtype=FDTYPE)
+        self._values = B.xp().empty((n_measurements, self._N), dtype=B.FDTYPE)
+        self._measurement_times = B.xp().empty((n_measurements,), dtype=B.FDTYPE)
         self._index = 0
 
         return n_measurements
 
-    def measure(self, rho: Array, t: float, step_index: int) -> None:
+    def measure(self, rho: B.Array, t: float, step_index: int) -> None:
         if not self._should_measure(t, step_index):
             return
 
-        density = xp().real(xp().diag(rho))
+        density = B.xp().real(B.xp().diag(rho))
         self._values[self._index, :] = density
         self._measurement_times[self._index] = t
         self._index += 1
 
     def finalize(self) -> None:
-        if USE_GPU:
+        if B.USE_GPU:
             self.values = self._values[: self._index].asnumpy()
             self.measurement_times = self._measurement_times[: self._index].asnumpy()
         else:
@@ -257,35 +257,35 @@ class BondCurrentObservable(Observable):
         super().__init__(
             measurement_start_time, measurement_end_time, measurement_stride
         )
-        self._nearest_neighbors = xp().array(
-            geometry.nearest_neighbors, dtype=xp().int64
+        self._nearest_neighbors = B.xp().array(
+            geometry.nearest_neighbors, dtype=B.xp().int64
         )
 
     def setup(self, dt: float, total_steps: int) -> int:
         n_measurements = super().setup(dt, total_steps)
 
-        self._nn_rows = xp().array(self._nearest_neighbors[:, 0], dtype=xp().int64)
-        self._nn_cols = xp().array(self._nearest_neighbors[:, 1], dtype=xp().int64)
+        self._nn_rows = B.xp().array(self._nearest_neighbors[:, 0], dtype=B.xp().int64)
+        self._nn_cols = B.xp().array(self._nearest_neighbors[:, 1], dtype=B.xp().int64)
 
         E = int(self._nn_rows.shape[0])
-        self._values = xp().empty((n_measurements, E), dtype=FDTYPE)
-        self._measurement_times = xp().empty((n_measurements,), dtype=FDTYPE)
+        self._values = B.xp().empty((n_measurements, E), dtype=B.FDTYPE)
+        self._measurement_times = B.xp().empty((n_measurements,), dtype=B.FDTYPE)
         self._index = 0
 
         return n_measurements
 
-    def measure(self, rho: Array, t: float, step_index: int) -> None:
+    def measure(self, rho: B.Array, t: float, step_index: int) -> None:
         if not self._should_measure(t, step_index):
             return
 
         # Vectorized gather of nearest-neighbor bond currents
-        currents = 2.0 * xp().imag(rho[self._nn_rows, self._nn_cols])  # (E,)
+        currents = 2.0 * B.xp().imag(rho[self._nn_rows, self._nn_cols])  # (E,)
         self._values[self._index, :] = currents
         self._measurement_times[self._index] = t
         self._index += 1
 
     def finalize(self) -> None:
-        if USE_GPU:
+        if B.USE_GPU:
             self.values = self._values[: self._index].asnumpy()
             self.measurement_times = self._measurement_times[: self._index].asnumpy()
         else:
@@ -333,7 +333,7 @@ class LatticeFrameObservable(Observable):
 
         return super().setup(dt, total_steps)
 
-    def measure(self, rho: Array, t: float, step_index: int) -> None:
+    def measure(self, rho: B.Array, t: float, step_index: int) -> None:
         self.density_obs.measure(rho, t, step_index)
         self.current_obs.measure(rho, t, step_index)
         self.plaquette_oam_obs.measure(rho, t, step_index)
@@ -346,9 +346,9 @@ class LatticeFrameObservable(Observable):
         index = self.density_obs._index
 
         self.values = {
-            "densities": cast(FCPUArray, self.density_obs.values),
-            "currents": cast(FCPUArray, self.current_obs.values),
-            "plaquette_oam": cast(FCPUArray, self.plaquette_oam_obs.values),
+            "densities": cast(B.FCPUArray, self.density_obs.values),
+            "currents": cast(B.FCPUArray, self.current_obs.values),
+            "plaquette_oam": cast(B.FCPUArray, self.plaquette_oam_obs.values),
         }
 
         self.measurement_times = self.density_obs.measurement_times[:index]

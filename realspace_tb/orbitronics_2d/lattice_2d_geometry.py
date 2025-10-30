@@ -1,41 +1,41 @@
 from abc import ABC, abstractmethod
-from ..backend import FCPUArray
+from .. import backend as B
 import numpy as np
 from numpy.typing import NDArray
 
 class Lattice2DGeometry(ABC):
     def __init__(self) -> None:
-        self._site_positions: "FCPUArray | None" = None
+        self._site_positions: "B.FCPUArray | None" = None
 
     @property
-    def site_positions(self) -> FCPUArray:
+    def site_positions(self) -> B.FCPUArray:
         if self._site_positions is None:
             self._site_positions = np.array([
                 self.index_to_position(i) for i in range(self.Lx * self.Ly)
-            ])
+            ], dtype=B.FCPUDTYPE)
         return self._site_positions
 
     @abstractmethod
-    def index_to_position(self, index: int) -> FCPUArray:
+    def index_to_position(self, index: int) -> B.FCPUArray:
         """Convert site index to real space position"""
         ...
 
     @property
     @abstractmethod
-    def nearest_neighbors(self) -> FCPUArray:
+    def nearest_neighbors(self) -> B.FCPUArray:
         """Array of nearest neighbor indices [[i, j], ...] = <i, j>"""
         ...
 
     @property
     @abstractmethod
-    def bravais_site_indices(self) -> FCPUArray:
+    def bravais_site_indices(self) -> B.FCPUArray:
         """List of all indices that form the Bravais lattice."""
         ...
 
     @property
-    def origin(self) -> FCPUArray:
+    def origin(self) -> B.FCPUArray:
         """Origin of the lattice as real space vector."""
-        return np.array([0.0, 0.0])
+        return np.array([0.0, 0.0], dtype=B.FCPUDTYPE)
 
     Lx: int
     Ly: int
