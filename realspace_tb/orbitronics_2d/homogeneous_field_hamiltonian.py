@@ -4,6 +4,7 @@ from .. import backend as B
 from abc import ABC, abstractmethod
 import numpy as np
 
+
 class HomogeneousFieldAmplitude(ABC):
     """Abstract base class for homogeneous electric field with only scalar time dependence."""
 
@@ -13,7 +14,6 @@ class HomogeneousFieldAmplitude(ABC):
         ...
 
     direction: B.FCPUArray = np.zeros(2)
-
 
 
 class RampedACFieldAmplitude(HomogeneousFieldAmplitude):
@@ -28,31 +28,31 @@ class RampedACFieldAmplitude(HomogeneousFieldAmplitude):
         self.ramp_time = B.FDTYPE(T_ramp)
         self.direction = B.FDTYPE(direction)
 
-        print(self.E0, type(self.E0))
-
     def at_time(self, t: "float | B.Array") -> "float | B.Array":
         # TODO maybe make it CPU only and move backend transfer to Hamiltonian class
         # -> avoid confusion and minimize code scope of GPU backend
         xp = B.xp()
         if xp.isscalar(t):
             if t < self.ramp_time:
-                ramp = xp.sin(np.pi * t / (2 * self.ramp_time))**2
+                ramp = xp.sin(np.pi * t / (2 * self.ramp_time)) ** 2
             else:
                 ramp = 1.0
             return self.E0 * ramp * xp.sin(self.omega * t)
 
         ramp = xp.where(
             t < self.ramp_time,
-            xp.sin(xp.pi * t / (2 * self.ramp_time))**2,
-            xp.ones_like(t, dtype=B.FDTYPE)
+            xp.sin(xp.pi * t / (2 * self.ramp_time)) ** 2,
+            xp.ones_like(t, dtype=B.FDTYPE),
         )
         return self.E0 * ramp * xp.sin(self.omega * t)
 
 
 class LinearFieldHamiltonian(Hamiltonian):
-    def __init__(self, geometry: Lattice2DGeometry, field_amplitude: HomogeneousFieldAmplitude):
+    def __init__(
+        self, geometry: Lattice2DGeometry, field_amplitude: HomogeneousFieldAmplitude
+    ):
         super().__init__()
-        
+
         self.geometry = geometry
         self.field_amplitude = field_amplitude
 
@@ -69,15 +69,32 @@ class LinearFieldHamiltonian(Hamiltonian):
             row_indices.append(j)
             col_indices.append(i)
             data.append(-1.0)
-        self.H_0 = B.xp_sparse().coo_matrix((data, (row_indices, col_indices)), shape=(size, size), dtype=B.FDTYPE).tocsr()
+        self.H_0 = (
+            B.xp_sparse()
+            .coo_matrix(
+                (
+                    B.xp().array(data),
+                    (B.xp().array(row_indices), B.xp().array(col_indices)),
+                ),
+                shape=(size, size),
+                dtype=B.FDTYPE,
+            )
+            .tocsr()
+        )
 
         # make a sparse matrix diag(r_i . E) for position operator along field direction
-        position_shifts = B.xp().array([
-            np.dot(geometry.index_to_position(index), field_amplitude.direction) for index in range(size)
-        ], dtype=B.FDTYPE)
+        position_shifts = B.xp().array(
+            [
+                np.dot(geometry.index_to_position(index), field_amplitude.direction)
+                for index in range(size)
+            ],
+            dtype=B.FDTYPE,
+        )
         position_shifts -= B.xp().mean(position_shifts)  # center around zero
 
-        self.position_operator = B.xp_sparse().diags(position_shifts, format="csr", dtype=B.FDTYPE)
+        self.position_operator = B.xp_sparse().diags(
+            position_shifts, format="csr", dtype=B.FDTYPE
+        )
 
     def at_time(self, t: float) -> B.SparseArray:
         # Implementation of the Hamiltonian at time t

@@ -6,7 +6,7 @@ import numpy as np
 
 
 class PlaquetteOAMObservable(Observable):
-    """Measures the plaquette orbital angular momentum using loop currents around cells as
+    r"""Measures the plaquette orbital angular momentum using loop currents around cells as
     :math:`\expval{\int_{A_\circlearrowleft} d^2s \ L_z} = -\frac{\sqrt{3} m_e}{2} \sum_{(k,l)\in\circlearrowleft_{\vec R}} J_{kl}`
     """
 
@@ -115,7 +115,7 @@ class PlaquetteOAMObservable(Observable):
 
 
 class OrbitalPolarizationObservable(PlaquetteOAMObservable):
-    """Measures the orbital polarization using loop currents around cells as
+    r"""Measures the orbital polarization using loop currents around cells as
     :math:`\expval{P_{orb}} = -i\frac{m_e}{A_\mathrm{tot}} \sum_\alpha\sum_{(k,l)\in\circlearrowleft_{\vec R_\alpha}} (\sqrt 3\,\vec R_\alpha +\frac{5}{12}\begin{pmatrix}0&-1\\1&0\end{pmatrix} (\vec r_l - \vec r_k)) \Im \rho_{kl}`
     """
 
