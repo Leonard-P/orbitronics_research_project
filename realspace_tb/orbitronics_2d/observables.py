@@ -107,8 +107,8 @@ class PlaquetteOAMObservable(Observable):
         """Some measurement windows leave the last _values entry unfilled."""
         if B.USE_GPU:
             # if backend was set to GPU, _values is a cupy array, so move to CPU
-            self.values = self._values[: self._index].asnumpy()
-            self.measurement_times = self._measurement_times[: self._index].asnumpy()
+            self.values = self._values[: self._index].get()
+            self.measurement_times = self._measurement_times[: self._index].get()
         else:
             self.values = self._values[: self._index]
             self.measurement_times = self._measurement_times[: self._index]
@@ -196,8 +196,8 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
         """Some measurement windows leave the last _values entry unfilled."""
         if B.USE_GPU:
             # if backend was set to GPU, _values is a cupy array, so move to CPU
-            self.values = self._values[: self._index].asnumpy()
-            self.measurement_times = self._measurement_times[: self._index].asnumpy()
+            self.values = self._values[: self._index].get()
+            self.measurement_times = self._measurement_times[: self._index].get()
         else:
             self.values = self._values[: self._index]
             self.measurement_times = self._measurement_times[: self._index]
@@ -237,8 +237,8 @@ class SiteDensityObservable(Observable):
 
     def finalize(self) -> None:
         if B.USE_GPU:
-            self.values = self._values[: self._index].asnumpy()
-            self.measurement_times = self._measurement_times[: self._index].asnumpy()
+            self.values = self._values[: self._index].get()
+            self.measurement_times = self._measurement_times[: self._index].get()
         else:
             self.values = self._values[: self._index]
             self.measurement_times = self._measurement_times[: self._index]
@@ -286,8 +286,8 @@ class BondCurrentObservable(Observable):
 
     def finalize(self) -> None:
         if B.USE_GPU:
-            self.values = self._values[: self._index].asnumpy()
-            self.measurement_times = self._measurement_times[: self._index].asnumpy()
+            self.values = self._values[: self._index].get()
+            self.measurement_times = self._measurement_times[: self._index].get()
         else:
             self.values = self._values[: self._index]
             self.measurement_times = self._measurement_times[: self._index]

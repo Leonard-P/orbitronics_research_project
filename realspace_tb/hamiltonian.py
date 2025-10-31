@@ -28,7 +28,7 @@ class Hamiltonian(ABC):
         return self._eigenstates
 
     def ground_state_density_matrix(self, fermi_level: float=0.0) -> B.Array:
-        """Return the ground state density matrix. Calculates eigenstates from H_0 (assumed as H at t=0 here).
+        r"""Return the ground state density matrix. Calculates eigenstates from H_0 (assumed as H at t=0 here).
         Returns \sum_n |psi_n><psi_n| for all eigenstates with energy E_n <= fermi_level.
         """
         rho_energy_basis = B.xp().diag([1 if self.eigenvalues[i] <= fermi_level else 0 for i in range(self.eigenvalues.shape[0])])
