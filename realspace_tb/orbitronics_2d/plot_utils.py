@@ -1,6 +1,5 @@
 """
 Animation utilities for plotting and rendering animations of 2D Lattice geometries.
-
 """
 
 from typing import cast, Any
@@ -59,7 +58,6 @@ def _site_coordinates(geometry: Lattice2DGeometry) -> tuple[np.ndarray, np.ndarr
 
 def _create_scene(
     lattice_frame_obs: LatticeFrameObservable,
-    geometry: Lattice2DGeometry,
     density_cmap: str = "Greys",
     density_vmin: float = 0.0,
     density_vmax: float = 1.0,
@@ -95,6 +93,8 @@ def _create_scene(
 
     F, N = densities.shape
     _, E = bond_currents.shape
+
+    geometry = lattice_frame_obs.geometry
 
     # Coordinates
     xs = geometry.site_positions[:, 0]
@@ -505,9 +505,8 @@ def _update_scene(ctx: dict[str, Any], frame: int) -> tuple[plt.Artist, ...]:
 
 def save_simulation_animation(
     lattice_frame_obs: LatticeFrameObservable,
-    geometry: Lattice2DGeometry,
     out_path: str,
-    fps: int = 20,
+    fps: int = 10,
     dpi: int = 150,
     density_cmap: str = "Greys",
     density_vmin: float = 0.0,
@@ -540,8 +539,7 @@ def save_simulation_animation(
     """Save an animation visualizing onsite densities and bond currents over frames.
 
     Parameters:
-        lattice_frame_obs: LatticeFrameObservable that recorded 'densities', 'currents', 'plaquette_oam' during the simulation
-        geometry: Lattice2DGeometry providing site positions and nearest neighbor pairs
+        lattice_frame_obs: LatticeFrameObservable that recorded 'densities', 'currents', 'plaquette_oam' during the simulation and has geometry defined
         out_path: output file (e.g., mp4 or gif)
         fps: frames per second in output animation
         dpi: resolution of output animation
@@ -569,7 +567,6 @@ def save_simulation_animation(
     """
     fig, ax, ctx = _create_scene(
         lattice_frame_obs=lattice_frame_obs,
-        geometry=geometry,
         density_cmap=density_cmap,
         density_vmin=density_vmin,
         density_vmax=density_vmax,
@@ -613,7 +610,6 @@ def save_simulation_animation(
 
 def show_simulation_frame(
     lattice_frame_obs: LatticeFrameObservable,
-    geometry: Lattice2DGeometry,
     frame: int = 0,
     density_cmap: str = "Greys",
     density_vmin: float = 0.0,
@@ -647,8 +643,7 @@ def show_simulation_frame(
     """Render a single frame to the current figure (useful for notebooks).
 
     Parameters:
-        lattice_frame_obs: LatticeFrameObservable that recorded 'densities', 'currents', 'plaquette_oam' during the simulation
-        geometry: Lattice2DGeometry providing site positions and nearest neighbor pairs
+        lattice_frame_obs: LatticeFrameObservable that recorded 'densities', 'currents', 'plaquette_oam' during the simulation and has geometry defined
         frame: index of frame to render
         density_cmap: colormap for site densities
         density_vmin: min value for density colormap
@@ -678,7 +673,6 @@ def show_simulation_frame(
     """
     fig, ax, ctx = _create_scene(
         lattice_frame_obs=lattice_frame_obs,
-        geometry=geometry,
         density_cmap=density_cmap,
         density_vmin=density_vmin,
         density_vmax=density_vmax,

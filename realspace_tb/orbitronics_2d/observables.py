@@ -308,6 +308,8 @@ class LatticeFrameObservable(Observable):
             measurement_start_time, measurement_end_time, measurement_stride
         )
 
+        self.geometry = geometry
+
         self.density_obs = SiteDensityObservable(
             geometry, measurement_start_time, measurement_end_time, measurement_stride
         )

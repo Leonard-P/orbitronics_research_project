@@ -1,33 +1,34 @@
+"""
+realspace_tb: time-domain real-space tight binding simulations, primarily for finite graphene-like systems.
+
+Core API:
+- backend: precision/backend selection
+- RK4NeumannSolver: time integrator
+- orbitronics_2d: graphene-specific Hamiltonians, observables for plaquette-wise intersite current OAM (submodule)
+"""
+
+# Public core
+from . import backend as backend
 from .rk4 import RK4NeumannSolver
+from .hamiltonian import Hamiltonian
+from .observable import Observable
+
+# Version
+from importlib.metadata import version, PackageNotFoundError
+try:
+    __version__ = version("realspace_tb")
+except PackageNotFoundError:
+    __version__ = "0+unknown"
 
 
-# submodule orbitronics2d, imported as realspace_tb.orbitronics_2d
-from .orbitronics_2d.homogeneous_field_hamiltonian import (
-    LinearFieldHamiltonian,
-    RampedACFieldAmplitude,
-)
-from .orbitronics_2d.honeycomb_geometry import HoneycombLatticeGeometry
-from .orbitronics_2d.observables import (
-    OrbitalPolarizationObservable,
-    PlaquetteOAMObservable,
-    SiteDensityObservable,
-    BondCurrentObservable,
-    LatticeFrameObservable
-)
-from .orbitronics_2d.ohc import ohc
-from .orbitronics_2d.plot_utils import save_simulation_animation, show_simulation_frame
+# subpackage namespace
+from . import orbitronics_2d as orbitronics_2d
 
 __all__ = [
+    "backend",
     "RK4NeumannSolver",
-    "LinearFieldHamiltonian",
-    "HoneycombLatticeGeometry",
-    "RampedACFieldAmplitude",
-    "OrbitalPolarizationObservable",
-    "PlaquetteOAMObservable",
-    "SiteDensityObservable",
-    "BondCurrentObservable",
-    "LatticeFrameObservable",
-    "ohc",
-    "save_simulation_animation",
-    "show_simulation_frame",
+    "orbitronics_2d",
+    "Hamiltonian",
+    "Observable",
+    "__version__",
 ]

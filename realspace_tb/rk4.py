@@ -1,9 +1,10 @@
 from typing import Callable, List
 from . import backend as B
 from scipy.sparse import csr_matrix
-from tqdm import trange
+from tqdm.auto import trange
 from .hamiltonian import Hamiltonian
 from .observable import Observable
+
 
 class RK4NeumannSolver:
     """Implements the RK4 integration method. Currently support the basic case of von Neumann equation with simple decay term and a scalarly time-dependent Hamiltonian."""
@@ -32,7 +33,7 @@ class RK4NeumannSolver:
         """
 
         # Calculate [H, ρ]
-        d_rho_dt = H @ rho - rho @ H # TODO check if sparse multiplication works
+        d_rho_dt = H @ rho - rho @ H  # TODO check if sparse multiplication works
         # else:
         #     d_rho_dt = H.dot(rho) - csr_matrix.dot(rho, H)
         d_rho_dt *= -1j
@@ -41,7 +42,7 @@ class RK4NeumannSolver:
             d_rho_dt += (rho_0 - rho) / tau
 
         return d_rho_dt
-    
+
     def _rk4_step(
         self,
         t: float,
@@ -66,8 +67,12 @@ class RK4NeumannSolver:
             None. The density matrix is evolved in-place one RK4 step.
         """
         k1 = dt * self._time_evolution_derivative(t, rho, H, rho_0, tau)
-        k2 = dt * self._time_evolution_derivative(t + 0.5 * dt, rho + 0.5 * k1, H, rho_0, tau)
-        k3 = dt * self._time_evolution_derivative(t + 0.5 * dt, rho + 0.5 * k2, H, rho_0, tau)
+        k2 = dt * self._time_evolution_derivative(
+            t + 0.5 * dt, rho + 0.5 * k1, H, rho_0, tau
+        )
+        k3 = dt * self._time_evolution_derivative(
+            t + 0.5 * dt, rho + 0.5 * k2, H, rho_0, tau
+        )
         k4 = dt * self._time_evolution_derivative(t + dt, rho + k3, H, rho_0, tau)
 
         rho += (1.0 / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
@@ -75,7 +80,17 @@ class RK4NeumannSolver:
         # Ensure hermiticity
         rho[:] = (rho + rho.T.conj()) / 2.0
 
-    def evolve(self, rho: B.Array, H: Hamiltonian, dt: float, total_time: float, rho_0: "B.Array | None" = None, tau: float = float("inf"), observables: list[Observable] | None = None) -> None:
+    def evolve(
+        self,
+        rho: B.Array,
+        H: Hamiltonian,
+        dt: float,
+        total_time: float,
+        rho_0: "B.Array | None" = None,
+        tau: float = float("inf"),
+        observables: list[Observable] | None = None,
+        progress: bool = True,
+    ) -> None:
         """
         Evolve the density matrix using the RK4 method.
 
@@ -99,7 +114,7 @@ class RK4NeumannSolver:
         if tau != float("inf") and rho_0 is None:
             rho_0 = rho.copy()
 
-        for step in trange(n_steps):
+        for step in trange(n_steps, disable=not progress):
             t = step * dt
 
             for observable in observables or []:

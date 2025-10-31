@@ -1,7 +1,8 @@
-"""Goal of this file is to provide the correct backend (numpy or, for GPU, cupy) and data types (single, double) so that the rest of the code can be written simultaneously for both backends.
+"""
+Goal of this file is to provide the correct backend (numpy or, for GPU, cupy) and data types (single, double) so that the rest of the code can be written simultaneously for both backends.
 Key functions:
     xp() returns either numpy or cupy module.
-    set_backend() allows switching between CPU and GPU backends.
+    set_backend() allows switching between CPU and GPU backends as well as single and double precision.
 """
 
 import numpy as np
