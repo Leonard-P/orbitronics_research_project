@@ -82,7 +82,7 @@ def _create_scene(
     oam_arrow_positive_color: str = "red",
     oam_arrow_negative_color: str = "blue",
     # Hide arrows for small curl values
-    oam_arrow_threshold: float | None = None,
+    oam_arrow_threshold: float = 0.01,
     # Optional per-frame text at top-left
     frame_texts: list[str] | None = None,
 ) -> tuple[plt.Figure, plt.Axes, dict[str, Any]]:
@@ -184,7 +184,6 @@ def _create_scene(
     curl_cw_arcs: list[Arc] = []
     curl_cw_heads: list[RegularPolygon] = []
     oam_vmax_f: float = 1.0
-    oam_arrow_threshold_f: float = 0.01
 
     if show_oam_indicators:
         curl_all = animation_values["plaquette_oam"]  # (F, C)
@@ -206,12 +205,6 @@ def _create_scene(
                 oam_vmax_f = 1.0
         else:
             oam_vmax_f = float(oam_vmax)
-
-        oam_arrow_threshold_f = (
-            (0.01 * oam_vmax_f)
-            if oam_arrow_threshold is None
-            else float(oam_arrow_threshold)
-        )
 
         curl_sc = ax.scatter(
             cx,
@@ -302,8 +295,8 @@ def _create_scene(
             # Initialize visibility from frame 0
             norm0 = curl_vals0 / (oam_vmax_f if oam_vmax_f else 1.0)
             for i, v in enumerate(norm0):
-                show_cw = v >= oam_arrow_threshold_f
-                show_ccw = v <= -oam_arrow_threshold_f
+                show_cw = v >= oam_arrow_threshold
+                show_ccw = v <= -oam_arrow_threshold
                 curl_ccw_arcs[i].set_visible(show_ccw)
                 curl_ccw_heads[i].set_visible(show_ccw)
                 curl_cw_arcs[i].set_visible(show_cw)
@@ -429,7 +422,7 @@ def _create_scene(
         "curl_sc": curl_sc,
         "show_oam_direction_arrows": show_oam_direction_arrows,
         "oam_vmax_f": oam_vmax_f,
-        "oam_arrow_threshold_f": oam_arrow_threshold_f,
+        "oam_arrow_threshold": oam_arrow_threshold,
         "curl_ccw_arcs": curl_ccw_arcs,
         "curl_ccw_heads": curl_ccw_heads,
         "curl_cw_arcs": curl_cw_arcs,
@@ -482,12 +475,12 @@ def _update_scene(ctx: dict[str, Any], frame: int) -> tuple[plt.Artist, ...]:
 
         if ctx["show_oam_direction_arrows"]:
             oam_vmax_f = ctx["oam_vmax_f"]
-            oam_arrow_threshold_f = ctx["oam_arrow_threshold_f"]
+            oam_arrow_threshold = ctx["oam_arrow_threshold"]
             denom = oam_vmax_f if oam_vmax_f else (np.max(np.abs(vals)) or 1.0)
             normv = vals / denom
             for i, v in enumerate(normv):
-                show_cw = v >= oam_arrow_threshold_f
-                show_ccw = v <= -oam_arrow_threshold_f
+                show_cw = v >= oam_arrow_threshold
+                show_ccw = v <= -oam_arrow_threshold
                 ctx["curl_ccw_arcs"][i].set_visible(show_ccw)
                 ctx["curl_ccw_heads"][i].set_visible(show_ccw)
                 ctx["curl_cw_arcs"][i].set_visible(show_cw)
@@ -532,7 +525,7 @@ def save_simulation_animation(
     oam_arrow_positive_color: str = "red",
     oam_arrow_negative_color: str = "blue",
     # Hide arrows for small curl values
-    oam_arrow_threshold: float | None = None,
+    oam_arrow_threshold: float = 0.01,
     # Optional per-frame text at top-left
     frame_texts: list[str] | None = None,
 ) -> None:
@@ -562,7 +555,7 @@ def save_simulation_animation(
         oam_arrow_lw: line width of OAM circular arrows
         oam_arrow_positive_color: color for positive OAM circular arrows
         oam_arrow_negative_color: color for negative OAM circular arrows
-        oam_arrow_threshold: threshold for showing OAM circular arrows; if None, set to 1% of oam_vmax
+        oam_arrow_threshold: threshold for showing OAM circular arrows, relative to oam_vmax
         frame_texts: optional list of strings to use as title text per frame; if None, uses frame index "frame i/F"
     """
     fig, ax, ctx = _create_scene(
@@ -635,7 +628,7 @@ def show_simulation_frame(
     oam_arrow_positive_color: str = "red",
     oam_arrow_negative_color: str = "blue",
     # Hide arrows for small curl values
-    oam_arrow_threshold: float | None = None,
+    oam_arrow_threshold: float = 0.01,
     # Optional per-frame text at top-left
     frame_texts: list[str] | None = None,
     show: bool = True,
@@ -664,7 +657,7 @@ def show_simulation_frame(
         oam_arrow_lw: line width of OAM circular arrows
         oam_arrow_positive_color: color for positive OAM circular arrows
         oam_arrow_negative_color: color for negative OAM circular arrows
-        oam_arrow_threshold: threshold for showing OAM circular arrows; if None, set to 1% of oam_vmax
+        oam_arrow_threshold: threshold for showing OAM circular arrows relative to oam_vmax
         frame_texts: optional list of strings to use as title text per frame; if None, uses frame index "frame i/F"
         show: whether to call plt.show(). Useful if figure needs to be saved instead.
     
