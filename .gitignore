@@ -15,3 +15,5 @@
 /large_image_files
 **/.DS_Store
 .DS_Store
+/build
+/realspace_tb.egg-info
