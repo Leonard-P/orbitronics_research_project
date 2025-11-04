@@ -25,7 +25,7 @@ class RampedACFieldAmplitude(HomogeneousFieldAmplitude):
     def __init__(self, E0: float, omega: float, T_ramp: float, direction: B.FCPUArray):
         self.E0 = B.FDTYPE(E0)
         self.omega = B.FDTYPE(omega)
-        self.ramp_time = B.FDTYPE(T_ramp)
+        self.T_ramp = B.FDTYPE(T_ramp)
         self.direction = B.FDTYPE(direction)
 
     def at_time(self, t: "float | B.Array") -> "float | B.Array":
@@ -33,17 +33,17 @@ class RampedACFieldAmplitude(HomogeneousFieldAmplitude):
         # -> avoid confusion and minimize code scope of GPU backend
         xp = B.xp()
         if xp.isscalar(t):
-            if t < self.ramp_time:
-                ramp = xp.sin(np.pi * t / (2 * self.ramp_time)) ** 2
+            if t < self.T_ramp:
+                ramp = xp.sin(np.pi * t / (2 * self.T_ramp)) ** 2
             else:
                 ramp = 1.0
             return self.E0 * ramp * xp.sin(self.omega * t)
 
         ramp = xp.where(
-            t < self.ramp_time,
-            xp.sin(xp.pi * t / (2 * self.ramp_time)) ** 2,
+            t < self.T_ramp,
+            xp.sin(xp.pi * t / (2 * self.T_ramp)) ** 2,
             xp.ones_like(t, dtype=B.FDTYPE),
-        )
+        ) 
         return self.E0 * ramp * xp.sin(self.omega * t)
 
 

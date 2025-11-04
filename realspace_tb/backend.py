@@ -5,7 +5,6 @@ Key functions:
     set_backend() allows switching between CPU and GPU backends as well as single and double precision.
 """
 
-import numpy as np
 from numpy.typing import NDArray
 import numpy as np
 from scipy.sparse import csr_matrix
@@ -25,6 +24,8 @@ except ImportError:
     cpsp = None
     _cupy_available = False
 
+USE_GPU: bool = False
+
 def xp() -> types.ModuleType:
     """Return the active array module (NumPy or CuPy)."""
     return cp if USE_GPU else np
@@ -33,7 +34,6 @@ def xp_sparse() -> types.ModuleType:
     """Return the active sparse array module (scipy sparse or cupy sparse)."""
     return cpsp if USE_GPU else sparse
 
-USE_GPU: bool = False
 DTYPE: type = xp().complex128
 FDTYPE: type = xp().float64
 FCPUDTYPE: type = np.float64

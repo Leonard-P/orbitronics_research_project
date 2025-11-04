@@ -13,6 +13,7 @@ from .lattice_2d_geometry import Lattice2DGeometry
 from .homogeneous_field_hamiltonian import (
     RampedACFieldAmplitude,
     LinearFieldHamiltonian,
+    HomogeneousFieldAmplitude,
 )
 
 from . import observables as observables
@@ -30,6 +31,7 @@ __all__ = [
     "LinearFieldHamiltonian",
     "OrbitalPolarizationHoneycomb",
     "Lattice2DGeometry",
+    "HomogeneousFieldAmplitude",
     # functions
     "ohc",
     "show_simulation_frame",
