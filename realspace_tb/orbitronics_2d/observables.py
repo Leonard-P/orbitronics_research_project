@@ -257,15 +257,17 @@ class BondCurrentObservable(Observable):
         super().__init__(
             measurement_start_time, measurement_end_time, measurement_stride
         )
+
         self._nearest_neighbors = B.xp().array(
             geometry.nearest_neighbors, dtype=B.xp().int64
         )
 
-    def setup(self, dt: float, total_steps: int) -> int:
-        n_measurements = super().setup(dt, total_steps)
-
         self._nn_rows = B.xp().array(self._nearest_neighbors[:, 0], dtype=B.xp().int64)
         self._nn_cols = B.xp().array(self._nearest_neighbors[:, 1], dtype=B.xp().int64)
+
+
+    def setup(self, dt: float, total_steps: int) -> int:
+        n_measurements = super().setup(dt, total_steps)
 
         E = int(self._nn_rows.shape[0])
         self._values = B.xp().empty((n_measurements, E), dtype=B.FDTYPE)

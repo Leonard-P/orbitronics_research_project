@@ -138,20 +138,18 @@ def _create_scene(
     if show_flow_arrows and E > 0 and arrows_per_edge > 0:
         P0 = segments[:, 0, :]
         P1 = segments[:, 1, :]
-        dP = P1 - P0
+        dP = P1 - P0  # r_k - r_l points to r_k
         lengths = np.linalg.norm(dP, axis=1)
         safe_lengths = np.where(lengths == 0, 1.0, lengths)
         dirs = dP / safe_lengths[:, None]  # (E,2)
 
-        fracs = (np.arange(1, arrows_per_edge + 1) / (arrows_per_edge + 1)).astype(
-            float
-        )
+        fracs = (np.arange(1, arrows_per_edge + 1) / (arrows_per_edge + 1)).astype(float)
         Px = (P0[:, 0:1] + fracs * dP[:, 0:1]).reshape(-1)
         Py = (P0[:, 1:2] + fracs * dP[:, 1:2]).reshape(-1)
         dirx = np.repeat(dirs[:, 0], arrows_per_edge)
         diry = np.repeat(dirs[:, 1], arrows_per_edge)
         J0 = bond_currents[0]
-        s0 = np.sign(J0)
+        s0 = -np.sign(J0)
         L0 = arrow_scale * np.repeat(np.abs(J0) / current_max, arrows_per_edge)
         U0 = L0 * np.repeat(s0, arrows_per_edge) * dirx
         V0 = L0 * np.repeat(s0, arrows_per_edge) * diry
@@ -295,8 +293,8 @@ def _create_scene(
             # Initialize visibility from frame 0
             norm0 = curl_vals0 / (oam_vmax_f if oam_vmax_f else 1.0)
             for i, v in enumerate(norm0):
-                show_cw = v >= oam_arrow_threshold
-                show_ccw = v <= -oam_arrow_threshold
+                show_cw = v <= oam_arrow_threshold
+                show_ccw = v >= -oam_arrow_threshold
                 curl_ccw_arcs[i].set_visible(show_ccw)
                 curl_ccw_heads[i].set_visible(show_ccw)
                 curl_cw_arcs[i].set_visible(show_cw)
@@ -458,7 +456,7 @@ def _update_scene(ctx: dict[str, Any], frame: int) -> tuple[plt.Artist, ...]:
         and arrows_per_edge > 0
     ):
         J = bond_currents[frame]
-        sgn = np.sign(J)
+        sgn = -np.sign(J)
         L = arrow_scale * np.repeat(np.abs(J) / current_max, arrows_per_edge)
         U = L * np.repeat(sgn, arrows_per_edge) * dirx
         V = L * np.repeat(sgn, arrows_per_edge) * diry
@@ -479,8 +477,8 @@ def _update_scene(ctx: dict[str, Any], frame: int) -> tuple[plt.Artist, ...]:
             denom = oam_vmax_f if oam_vmax_f else (np.max(np.abs(vals)) or 1.0)
             normv = vals / denom
             for i, v in enumerate(normv):
-                show_cw = v >= oam_arrow_threshold
-                show_ccw = v <= -oam_arrow_threshold
+                show_cw = v <= oam_arrow_threshold
+                show_ccw = v >= -oam_arrow_threshold
                 ctx["curl_ccw_arcs"][i].set_visible(show_ccw)
                 ctx["curl_ccw_heads"][i].set_visible(show_ccw)
                 ctx["curl_cw_arcs"][i].set_visible(show_cw)
@@ -522,8 +520,8 @@ def save_simulation_animation(
     show_oam_direction_arrows: bool = True,
     oam_arrow_radius: float = 0.6,
     oam_arrow_lw: float = 1.5,
-    oam_arrow_positive_color: str = "red",
-    oam_arrow_negative_color: str = "blue",
+    oam_arrow_positive_color: str = "blue",
+    oam_arrow_negative_color: str = "red",
     # Hide arrows for small curl values
     oam_arrow_threshold: float = 0.01,
     # Optional per-frame text at top-left
@@ -625,8 +623,8 @@ def show_simulation_frame(
     show_oam_direction_arrows: bool = True,
     oam_arrow_radius: float = 0.6,
     oam_arrow_lw: float = 1.5,
-    oam_arrow_positive_color: str = "red",
-    oam_arrow_negative_color: str = "blue",
+    oam_arrow_positive_color: str = "blue",
+    oam_arrow_negative_color: str = "red",
     # Hide arrows for small curl values
     oam_arrow_threshold: float = 0.01,
     # Optional per-frame text at top-left
@@ -660,7 +658,7 @@ def show_simulation_frame(
         oam_arrow_threshold: threshold for showing OAM circular arrows relative to oam_vmax
         frame_texts: optional list of strings to use as title text per frame; if None, uses frame index "frame i/F"
         show: whether to call plt.show(). Useful if figure needs to be saved instead.
-    
+
     Returns:
         fig, ax: the matplotlib Figure and Axes objects
     """
