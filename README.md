@@ -11,7 +11,6 @@ Repository structure:
 - /examples: minimal example notebooks demonstrating code features.
 - /archive: contains (unorganized) code of the initial module version used for the report simulations.
 
-[Open in Colab](https://colab.research.google.com/github/Leonard-P/orbitronics_research_project/blob/main/notebooks/run_simulations.ipynb)
 
 # realspace_tb module
 ## Units
@@ -77,3 +76,6 @@ plt.plot(oam_obs.measurement_times, oam_obs.values[:,0])
 plt.xlabel("Time"); plt.ylabel("Orbital Polarization $P_{OAM,x} ($")
 plt.show()
 ```
+
+# Known issues
+Simultaneous CPU/GPU backend support is chaotic since part of the code is CPU-only on purpose (e.g. plotting, saving animations). Hence, using GPU-compatible methods outside the time evolution may need manual device transfers. 
