@@ -73,9 +73,9 @@ oam_obs = tb_orb.observables.OrbitalPolarizationObservable(H.geometry)
 tb.RK4NeumannSolver().evolve(rho, H, dt=0.01, total_time=20*np.pi, tau=10.0, observables=[oam_obs])
 
 plt.plot(oam_obs.measurement_times, oam_obs.values[:,0])
-plt.xlabel("Time"); plt.ylabel("Orbital Polarization $P_{OAM,x} ($")
+plt.xlabel("Time"); plt.ylabel("Orbital Polarization $P_{OAM,x}$")
 plt.show()
 ```
 
 # Known issues
-Simultaneous CPU/GPU backend support is chaotic since part of the code is CPU-only on purpose (e.g. plotting, saving animations). Hence, using GPU-compatible methods outside the time evolution may need manual device transfers. 
+Simultaneous CPU/GPU backend support is chaotic since part of the code is CPU-only on purpose (e.g. plotting, saving animations). Hence, using GPU-compatible methods outside the time evolution may need manual device transfers.
