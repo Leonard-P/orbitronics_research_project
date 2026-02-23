@@ -15,6 +15,19 @@ class Lattice2DGeometry(ABC):
             ], dtype=B.FCPUDTYPE)
         return self._site_positions
 
+    @property
+    def bond_vectors(self) -> NDArray[np.floating]:
+        """Displacement vectors ``r_j - r_i`` for each nearest-neighbor pair ``[i, j]``.
+
+        For open-boundary geometries the default implementation derives these
+        from ``site_positions``.  Subclasses with periodic boundary conditions
+        must override this so wrapped bonds return the *short* vector rather
+        than the full lattice-traversal vector.
+        """
+        nn = self.nearest_neighbors
+        pos = self.site_positions
+        return pos[nn[:, 1]] - pos[nn[:, 0]]
+
     @abstractmethod
     def index_to_position(self, index: int) -> B.FCPUArray:
         """Convert site index to real space position"""

@@ -108,9 +108,6 @@ class RK4NeumannSolver:
         """
         n_steps = int(total_time / dt)
 
-        for observable in observables or []:
-            observable.setup(dt, n_steps)
-
         if tau != float("inf") and rho_0 is None:
             rho_0 = rho.copy()
 

@@ -1,4 +1,4 @@
-from ..observable import Observable
+from ..observable import Observable, MeasurementWindow
 from .honeycomb_geometry import HoneycombLatticeGeometry
 from .. import backend as B
 from typing import cast
@@ -14,13 +14,9 @@ class PlaquetteOAMObservable(Observable):
         self,
         geometry: HoneycombLatticeGeometry,
         electron_mass: float = 0.741,
-        measurement_start_time: float = 0.0,
-        measurement_end_time: float = float("inf"),
-        measurement_stride: int = 1,
+        window: MeasurementWindow = MeasurementWindow(),
     ):
-        super().__init__(
-            measurement_start_time, measurement_end_time, measurement_stride
-        )
+        super().__init__(window)
 
         self._plaquette_anchors_cpu = geometry.bravais_site_indices
         self._c = -electron_mass * geometry.plaquette_area / 3
@@ -39,15 +35,6 @@ class PlaquetteOAMObservable(Observable):
         Lx = geometry.Lx
         Ly = geometry.Ly
         N = Lx * Ly
-
-        in_bounds = (rows_cpu >= 0) & (rows_cpu < N) & (cols_cpu >= 0) & (cols_cpu < N)
-
-        ax = self._plaquette_anchors_cpu % Lx
-        ay = self._plaquette_anchors_cpu // Lx
-        rx = rows_cpu % Lx
-        ry = rows_cpu // Lx
-        cx = cols_cpu % Lx
-        cy = cols_cpu // Lx
 
         in_bounds = (rows_cpu >= 0) & (rows_cpu < N) & (cols_cpu >= 0) & (cols_cpu < N)
 
@@ -85,33 +72,9 @@ class PlaquetteOAMObservable(Observable):
         self._rows = B.xp().array(rows_cpu, dtype=B.xp().int64)
         self._cols = B.xp().array(cols_cpu, dtype=B.xp().int64)
 
-    def setup(self, dt: float, total_steps: int) -> int:
-        n_measurements = super().setup(dt, total_steps)
-        self._values = B.xp().empty((n_measurements, self._n_cells), dtype=B.FDTYPE)
-        self._measurement_times = B.xp().empty((n_measurements,), dtype=B.FDTYPE)
-        self._index = 0
-
-        return n_measurements
-
-    def measure(self, rho: B.Array, t: float, step_index: int) -> None:
-        if not self._should_measure(t, step_index):
-            return
-
-        # Bond currents along the oriented loop edges for each cell
+    def _compute(self, rho: B.Array, t: float) -> B.Array:
         I_edges = 2.0 * B.xp().imag(rho[self._rows, self._cols])
-        self._values[self._index, :] = self._c * B.xp().sum(I_edges, axis=1)  # (n_cells,)
-        self._measurement_times[self._index] = t
-        self._index += 1
-
-    def finalize(self) -> None:
-        """Some measurement windows leave the last _values entry unfilled."""
-        if B.USE_GPU:
-            # if backend was set to GPU, _values is a cupy array, so move to CPU
-            self.values = self._values[: self._index].get()
-            self.measurement_times = self._measurement_times[: self._index].get()
-        else:
-            self.values = self._values[: self._index]
-            self.measurement_times = self._measurement_times[: self._index]
+        return self._c * B.xp().sum(I_edges, axis=1)  # (n_cells,)
 
 
 class OrbitalPolarizationObservable(PlaquetteOAMObservable):
@@ -123,17 +86,9 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
         self,
         geometry: HoneycombLatticeGeometry,
         electron_mass: float = 0.741,
-        measurement_start_time: float = 0.0,
-        measurement_end_time: float = float("inf"),
-        measurement_stride: int = 1,
+        window: MeasurementWindow = MeasurementWindow(),
     ):
-        super().__init__(
-            geometry,
-            electron_mass,
-            measurement_start_time,
-            measurement_end_time,
-            measurement_stride,
-        )
+        super().__init__(geometry, electron_mass, window)
 
         self._origin = B.xp().array(geometry.origin)
         self._m = electron_mass
@@ -160,18 +115,7 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
             B.xp().array(self._plaquette_anchors_cpu, dtype=np.int64)
         ]
 
-    def setup(self, dt: float, total_steps: int) -> int:
-        n_measurements = super().setup(dt, total_steps)
-        self._values = B.xp().empty((n_measurements, 2), dtype=B.FDTYPE)
-        self._measurement_times = B.xp().empty((n_measurements,), dtype=B.FDTYPE)
-        self._index = 0
-
-        return n_measurements
-
-    def measure(self, rho: B.Array, t: float, step_index: int) -> None:
-        if not self._should_measure(t, step_index):
-            return
-
+    def _compute(self, rho: B.Array, t: float) -> B.Array:
         # Bond currents along the oriented loop edges for each cell
         # I_ij = 2 * (t_hop = 1) * Im(rho_ij)
         I_edges = 2.0 * B.xp().imag(rho[self._rows, self._cols])
@@ -187,76 +131,26 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
         )  # (n_cells, 2)
         term2_vec = B.xp().sum(weighted_rot_edges, axis=0)  # (2,)
 
-        P_vec = (self._c1 * term1_vec + self._c2 * term2_vec) / self._A
-        self._values[self._index, :] = P_vec
-        self._measurement_times[self._index] = t
-        self._index += 1
-
-    def finalize(self) -> None:
-        """Some measurement windows leave the last _values entry unfilled."""
-        if B.USE_GPU:
-            # if backend was set to GPU, _values is a cupy array, so move to CPU
-            self.values = self._values[: self._index].get()
-            self.measurement_times = self._measurement_times[: self._index].get()
-        else:
-            self.values = self._values[: self._index]
-            self.measurement_times = self._measurement_times[: self._index]
+        return (self._c1 * term1_vec + self._c2 * term2_vec) / self._A
 
 
 class SiteDensityObservable(Observable):
-    """Measures the site-resolved electron density :math:`n_i = \rho_{ii}`."""
+    """Measures the site-resolved electron density :math:`n_i = \\rho_{ii}`.
+    """
 
-    def __init__(
-        self,
-        geometry: HoneycombLatticeGeometry,
-        measurement_start_time: float = 0.0,
-        measurement_end_time: float = float("inf"),
-        measurement_stride: int = 1,
-    ):
-        super().__init__(
-            measurement_start_time, measurement_end_time, measurement_stride
-        )
-        self._N = geometry.Lx * geometry.Ly
-
-    def setup(self, dt: float, total_steps: int) -> int:
-        n_measurements = super().setup(dt, total_steps)
-        self._values = B.xp().empty((n_measurements, self._N), dtype=B.FDTYPE)
-        self._measurement_times = B.xp().empty((n_measurements,), dtype=B.FDTYPE)
-        self._index = 0
-
-        return n_measurements
-
-    def measure(self, rho: B.Array, t: float, step_index: int) -> None:
-        if not self._should_measure(t, step_index):
-            return
-
-        density = B.xp().real(B.xp().diag(rho))
-        self._values[self._index, :] = density
-        self._measurement_times[self._index] = t
-        self._index += 1
-
-    def finalize(self) -> None:
-        if B.USE_GPU:
-            self.values = self._values[: self._index].get()
-            self.measurement_times = self._measurement_times[: self._index].get()
-        else:
-            self.values = self._values[: self._index]
-            self.measurement_times = self._measurement_times[: self._index]
+    def _compute(self, rho: B.Array, t: float) -> B.Array:
+        return B.xp().real(B.xp().diag(rho))
 
 
 class BondCurrentObservable(Observable):
-    """Measures the bond currents :math:`I_{ij} = 2 t_{hop} \Im \rho_{ij}`."""
+    """Measures the bond currents :math:`I_{ij} = 2 t_{hop} \\Im \\rho_{ij}`."""
 
     def __init__(
         self,
         geometry: HoneycombLatticeGeometry,
-        measurement_start_time: float = 0.0,
-        measurement_end_time: float = float("inf"),
-        measurement_stride: int = 1,
+        window: MeasurementWindow = MeasurementWindow(),
     ):
-        super().__init__(
-            measurement_start_time, measurement_end_time, measurement_stride
-        )
+        super().__init__(window)
 
         self._nearest_neighbors = B.xp().array(
             geometry.nearest_neighbors, dtype=B.xp().int64
@@ -265,77 +159,35 @@ class BondCurrentObservable(Observable):
         self._nn_rows = B.xp().array(self._nearest_neighbors[:, 0], dtype=B.xp().int64)
         self._nn_cols = B.xp().array(self._nearest_neighbors[:, 1], dtype=B.xp().int64)
 
-
-    def setup(self, dt: float, total_steps: int) -> int:
-        n_measurements = super().setup(dt, total_steps)
-
-        E = int(self._nn_rows.shape[0])
-        self._values = B.xp().empty((n_measurements, E), dtype=B.FDTYPE)
-        self._measurement_times = B.xp().empty((n_measurements,), dtype=B.FDTYPE)
-        self._index = 0
-
-        return n_measurements
-
-    def measure(self, rho: B.Array, t: float, step_index: int) -> None:
-        if not self._should_measure(t, step_index):
-            return
-
-        # Vectorized gather of nearest-neighbor bond currents
-        currents = 2.0 * B.xp().imag(rho[self._nn_rows, self._nn_cols])  # (E,)
-        self._values[self._index, :] = currents
-        self._measurement_times[self._index] = t
-        self._index += 1
-
-    def finalize(self) -> None:
-        if B.USE_GPU:
-            self.values = self._values[: self._index].get()
-            self.measurement_times = self._measurement_times[: self._index].get()
-        else:
-            self.values = self._values[: self._index]
-            self.measurement_times = self._measurement_times[: self._index]
+    def _compute(self, rho: B.Array, t: float) -> B.Array:
+        return 2.0 * B.xp().imag(rho[self._nn_rows, self._nn_cols])  # (E,)
 
 
 class LatticeFrameObservable(Observable):
-    """Measures the full density matrix at given time steps for debugging and visualization."""
+    """Composite observable that records site densities, bond currents, and
+    plaquette OAM at each measurement step."""
 
     def __init__(
         self,
         geometry: HoneycombLatticeGeometry,
         electron_mass: float = 0.741,
-        measurement_start_time: float = 0.0,
-        measurement_end_time: float = float("inf"),
-        measurement_stride: int = 1,
+        window: MeasurementWindow = MeasurementWindow(),
     ) -> None:
-        super().__init__(
-            measurement_start_time, measurement_end_time, measurement_stride
-        )
+        super().__init__(window)
 
         self.geometry = geometry
 
-        self.density_obs = SiteDensityObservable(
-            geometry, measurement_start_time, measurement_end_time, measurement_stride
-        )
-
-        self.current_obs = BondCurrentObservable(
-            geometry, measurement_start_time, measurement_end_time, measurement_stride
-        )
-
+        self.density_obs = SiteDensityObservable(window)
+        self.current_obs = BondCurrentObservable(geometry, window)
         self.plaquette_oam_obs = PlaquetteOAMObservable(
-            geometry,
-            electron_mass,
-            measurement_start_time,
-            measurement_end_time,
-            measurement_stride,
+            geometry, electron_mass, window
         )
 
         self.plaquette_anchor_indices = self.plaquette_oam_obs._plaquette_anchors_cpu
 
-    def setup(self, dt: float, total_steps: int) -> int:
-        self.current_obs.setup(dt, total_steps)
-        self.density_obs.setup(dt, total_steps)
-        self.plaquette_oam_obs.setup(dt, total_steps)
-
-        return super().setup(dt, total_steps)
+    def _compute(self, rho: B.Array, t: float) -> B.Array:
+        # compute handled by sub-observables via measure()
+        raise NotImplementedError
 
     def measure(self, rho: B.Array, t: float, step_index: int) -> None:
         self.density_obs.measure(rho, t, step_index)
@@ -347,12 +199,10 @@ class LatticeFrameObservable(Observable):
         self.current_obs.finalize()
         self.plaquette_oam_obs.finalize()
 
-        index = self.density_obs._index
-
         self.values = {
             "densities": cast(B.FCPUArray, self.density_obs.values),
             "currents": cast(B.FCPUArray, self.current_obs.values),
             "plaquette_oam": cast(B.FCPUArray, self.plaquette_oam_obs.values),
         }
 
-        self.measurement_times = self.density_obs.measurement_times[:index]
+        self.measurement_times = self.density_obs.measurement_times

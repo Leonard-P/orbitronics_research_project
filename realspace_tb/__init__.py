@@ -11,7 +11,7 @@ Core API:
 from . import backend as backend
 from .rk4 import RK4NeumannSolver
 from .hamiltonian import Hamiltonian
-from .observable import Observable
+from .observable import Observable, MeasurementWindow
 
 # Version
 from importlib.metadata import version, PackageNotFoundError
@@ -30,5 +30,6 @@ __all__ = [
     "orbitronics_2d",
     "Hamiltonian",
     "Observable",
+    "MeasurementWindow",
     "__version__",
 ]

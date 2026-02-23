@@ -13,13 +13,14 @@ from .lattice_2d_geometry import Lattice2DGeometry
 from .homogeneous_field_hamiltonian import (
     RampedACFieldAmplitude,
     LinearFieldHamiltonian,
+    LinearFieldHamiltonianPeierls,
     HomogeneousFieldAmplitude,
 )
 
 from . import observables as observables
 from .plot_utils import show_simulation_frame, save_simulation_animation
 
-from .ohc import ohc
+from .ohc import ohc, fourier_at_omega
 
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "HoneycombLatticeGeometry",
     "RampedACFieldAmplitude",
     "LinearFieldHamiltonian",
+    "LinearFieldHamiltonianPeierls",
     "OrbitalPolarizationHoneycomb",
     "Lattice2DGeometry",
     "HomogeneousFieldAmplitude",
@@ -36,4 +38,5 @@ __all__ = [
     "ohc",
     "show_simulation_frame",
     "save_simulation_animation",
+    "fourier_at_omega",
 ]
