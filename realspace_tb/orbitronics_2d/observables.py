@@ -1,5 +1,6 @@
 from ..observable import Observable, MeasurementWindow
 from .honeycomb_geometry import HoneycombLatticeGeometry
+from ..hamiltonian import Hamiltonian
 from .. import backend as B
 from typing import cast
 import numpy as np
@@ -15,8 +16,10 @@ class PlaquetteOAMObservable(Observable):
         geometry: HoneycombLatticeGeometry,
         electron_mass: float = 0.741,
         window: MeasurementWindow | None = None,
+        hamiltonian: Hamiltonian | None = None,
     ):
         super().__init__(window)
+        self._hamiltonian = hamiltonian
 
         self._plaquette_anchors_cpu = geometry.bravais_site_indices
         self._c = -electron_mass * geometry.plaquette_area / 3
@@ -72,8 +75,25 @@ class PlaquetteOAMObservable(Observable):
         self._rows = B.xp().array(rows_cpu, dtype=B.xp().int64)
         self._cols = B.xp().array(cols_cpu, dtype=B.xp().int64)
 
+    def _compute_edge_currents(self, rho: B.Array, t: float) -> B.Array:
+        r"""Compute bond currents along plaquette edges.
+
+        Uses the gauge-invariant formula
+        :math:`I_{ij}(t) = 2\,\mathrm{Im}(H_{ij}(t)\,\rho_{ji}(t))`.
+        When no Hamiltonian is stored (``t_{hop} = -1``), this reduces to
+        :math:`2\,\mathrm{Im}(\rho_{ij})`.
+        """
+        if self._hamiltonian is not None:
+            H_t = self._hamiltonian.at_time(t)
+            xp = B.xp()
+            rows_flat = self._rows.ravel()
+            cols_flat = self._cols.ravel()
+            h_ij = xp.asarray(H_t[rows_flat, cols_flat]).reshape(self._rows.shape)
+            return 2.0 * xp.imag(h_ij * rho[self._cols, self._rows])
+        return 2.0 * B.xp().imag(rho[self._rows, self._cols])
+
     def _compute(self, rho: B.Array, t: float) -> B.Array:
-        I_edges = 2.0 * B.xp().imag(rho[self._rows, self._cols])
+        I_edges = self._compute_edge_currents(rho, t)
         return self._c * B.xp().sum(I_edges, axis=1)  # (n_cells,)
 
 
@@ -87,8 +107,9 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
         geometry: HoneycombLatticeGeometry,
         electron_mass: float = 0.741,
         window: MeasurementWindow | None = None,
+        hamiltonian: Hamiltonian | None = None,
     ):
-        super().__init__(geometry, electron_mass, window)
+        super().__init__(geometry, electron_mass, window, hamiltonian)
 
         self._origin = B.xp().array(geometry.origin)
         self._m = electron_mass
@@ -117,8 +138,7 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
 
     def _compute(self, rho: B.Array, t: float) -> B.Array:
         # Bond currents along the oriented loop edges for each cell
-        # I_ij = 2 * (t_hop = 1) * Im(rho_ij)
-        I_edges = 2.0 * B.xp().imag(rho[self._rows, self._cols])
+        I_edges = self._compute_edge_currents(rho, t)
 
         # R_alpha * sum_edges I_edge per cell
         curl_per_cell = B.xp().sum(I_edges, axis=1)  # (n_cells,)
@@ -143,23 +163,32 @@ class SiteDensityObservable(Observable):
 
 
 class BondCurrentObservable(Observable):
-    """Measures the bond currents :math:`I_{ij} = 2 t_{hop} \\Im \\rho_{ij}`."""
+    r"""Measures the bond currents :math:`I_{ij}(t) = 2\,\mathrm{Im}(H_{ij}(t)\,\rho_{ji}(t))`.
+
+    When no *hamiltonian* is provided the hopping is assumed real with
+    :math:`t_{\text{hop}} = -1`, reducing the expression to
+    :math:`2\,\mathrm{Im}(\rho_{ij})`.
+    """
 
     def __init__(
         self,
         geometry: HoneycombLatticeGeometry,
         window: MeasurementWindow | None = None,
+        hamiltonian: Hamiltonian | None = None,
     ):
         super().__init__(window)
+        self._hamiltonian = hamiltonian
 
-        self._nearest_neighbors = B.xp().array(
-            geometry.nearest_neighbors, dtype=B.xp().int64
-        )
-
-        self._nn_rows = B.xp().array(self._nearest_neighbors[:, 0], dtype=B.xp().int64)
-        self._nn_cols = B.xp().array(self._nearest_neighbors[:, 1], dtype=B.xp().int64)
+        nn = geometry.nearest_neighbors
+        self._nn_rows = B.xp().array(nn[:, 0], dtype=B.xp().int64)
+        self._nn_cols = B.xp().array(nn[:, 1], dtype=B.xp().int64)
 
     def _compute(self, rho: B.Array, t: float) -> B.Array:
+        if self._hamiltonian is not None:
+            xp = B.xp()
+            H_t = self._hamiltonian.at_time(t)
+            h_ij = xp.asarray(H_t[self._nn_rows, self._nn_cols]).ravel()
+            return 2.0 * xp.imag(h_ij * rho[self._nn_cols, self._nn_rows])  # (E,)
         return 2.0 * B.xp().imag(rho[self._nn_rows, self._nn_cols])  # (E,)
 
 
@@ -172,15 +201,16 @@ class LatticeFrameObservable(Observable):
         geometry: HoneycombLatticeGeometry,
         electron_mass: float = 0.741,
         window: MeasurementWindow | None = None,
+        hamiltonian: Hamiltonian | None = None,
     ) -> None:
         super().__init__(window)
 
         self.geometry = geometry
 
         self.density_obs = SiteDensityObservable(window)
-        self.current_obs = BondCurrentObservable(geometry, window)
+        self.current_obs = BondCurrentObservable(geometry, window, hamiltonian)
         self.plaquette_oam_obs = PlaquetteOAMObservable(
-            geometry, electron_mass, window
+            geometry, electron_mass, window, hamiltonian
         )
 
         self.plaquette_anchor_indices = self.plaquette_oam_obs._plaquette_anchors_cpu
@@ -189,6 +219,7 @@ class LatticeFrameObservable(Observable):
         # compute handled by sub-observables via measure()
         raise NotImplementedError
 
+    # override the ABC measure to call the sub-observables' measure methods (that call their _compute methods)
     def measure(self, rho: B.Array, t: float, step_index: int) -> None:
         self.density_obs.measure(rho, t, step_index)
         self.current_obs.measure(rho, t, step_index)
