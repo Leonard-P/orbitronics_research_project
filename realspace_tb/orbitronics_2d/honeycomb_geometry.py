@@ -61,7 +61,7 @@ class HoneycombLatticeGeometry(Lattice2DGeometry):
                 # Short bond vector: neighbour position in the periodic image
                 r_i = self.index_to_position(index)
                 r_j = self.index_to_position(neighbor_index)
-                r_j_image = r_j - np.array([
+                r_j_image = r_j + np.array([
                     wrap_c * Lx * self._col_width,
                     wrap_r * Ly * self._row_height,
                 ], dtype=B.FCPUDTYPE)

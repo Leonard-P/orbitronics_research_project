@@ -14,7 +14,7 @@ class PlaquetteOAMObservable(Observable):
         self,
         geometry: HoneycombLatticeGeometry,
         electron_mass: float = 0.741,
-        window: MeasurementWindow = MeasurementWindow(),
+        window: MeasurementWindow | None = None,
     ):
         super().__init__(window)
 
@@ -86,7 +86,7 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
         self,
         geometry: HoneycombLatticeGeometry,
         electron_mass: float = 0.741,
-        window: MeasurementWindow = MeasurementWindow(),
+        window: MeasurementWindow | None = None,
     ):
         super().__init__(geometry, electron_mass, window)
 
@@ -148,7 +148,7 @@ class BondCurrentObservable(Observable):
     def __init__(
         self,
         geometry: HoneycombLatticeGeometry,
-        window: MeasurementWindow = MeasurementWindow(),
+        window: MeasurementWindow | None = None,
     ):
         super().__init__(window)
 
@@ -171,7 +171,7 @@ class LatticeFrameObservable(Observable):
         self,
         geometry: HoneycombLatticeGeometry,
         electron_mass: float = 0.741,
-        window: MeasurementWindow = MeasurementWindow(),
+        window: MeasurementWindow | None = None,
     ) -> None:
         super().__init__(window)
 

@@ -23,8 +23,8 @@ class Observable(ABC):
     The base class handles accumulation and GPU-to-CPU transfer (``finalize``).
     """
 
-    def __init__(self, window: MeasurementWindow = MeasurementWindow()) -> None:
-        self.window = window
+    def __init__(self, window: MeasurementWindow | None = None) -> None:
+        self.window = window if window is not None else MeasurementWindow()
         self._results: list[B.Array] = []
         self._times: list[float] = []
 
@@ -36,7 +36,9 @@ class Observable(ABC):
     def measure(self, rho: B.Array, t: float, step_index: int) -> None:
         if not self.window.should_measure(t, step_index):
             return
-        self._results.append(self._compute(rho, t))
+        # .copy() ensures we store an independent snapshot even if _compute
+        # returns a view into rho (e.g. diag, real-part slices).
+        self._results.append(self._compute(rho, t).copy())
         self._times.append(t)
 
     def finalize(self) -> None:

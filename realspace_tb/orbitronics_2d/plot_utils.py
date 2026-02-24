@@ -21,24 +21,28 @@ from .observables import LatticeFrameObservable
 
 
 def _build_geometry_segments(geometry: Lattice2DGeometry) -> np.ndarray:
-    """Build line segments array for nearest-neighbor bonds from the geometry's edge list and position function.
+    """Build line segments array for nearest-neighbor bonds using ``bond_vectors``.
+
+    For PBC geometries ``geometry.bond_vectors`` stores the *short* displacement
+    vector ``r_j - r_i`` pointing to the nearest periodic image, so wrapped bonds
+    are drawn as short stubs rather than lines that cross the entire lattice.
+    The second endpoint of each segment is therefore ``r_i + bond_vector``, which
+    may lie outside the physical simulation cell – the viewer can imagine the
+    periodic image site at that position.
+
     Parameters:
-        geometry: Lattice2DGeometry with nearest_neighbors and index_to_position defined.
+        geometry: Lattice2DGeometry with nearest_neighbors, site_positions and
+                  bond_vectors defined.
 
     Returns:
-        array of shape (E, 2, 2): [ [ (xk, yk), (xl, yl) ], ... ].
+        array of shape (E, 2, 2): [ [ (x_i, y_i), (x_i+dx, y_i+dy) ], ... ].
     """
     rows = geometry.nearest_neighbors[:, 0]
-    cols = geometry.nearest_neighbors[:, 1]
-    E = rows.shape[0]
-    segs = np.empty((E, 2, 2), dtype=float)
-    for e in range(E):
-        xk, yk = geometry.index_to_position(int(rows[e]))
-        xl, yl = geometry.index_to_position(int(cols[e]))
-        segs[e, 0, 0] = xk
-        segs[e, 0, 1] = yk
-        segs[e, 1, 0] = xl
-        segs[e, 1, 1] = yl
+    pos = geometry.site_positions   # (N, 2)
+    bv = geometry.bond_vectors      # (E, 2)
+    segs = np.empty((len(rows), 2, 2), dtype=float)
+    segs[:, 0, :] = pos[rows]        # start: r_i
+    segs[:, 1, :] = pos[rows] + bv   # end:   r_i + (r_j − r_i)  [short vector]
     return segs
 
 
@@ -138,7 +142,14 @@ def _create_scene(
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
-    fig.subplots_adjust(left=0.01, right=1 - 1 / Lx, top=0.99, bottom=0.01)
+    fig.subplots_adjust(left=0.04, right=1 - 1 / Lx, top=0.96, bottom=0.04)
+
+    # Explicit axis limits with padding so edge sites/bonds are not clipped.
+    # The padding is at least 0.6 data units (≈ one bond length for the
+    # honeycomb) and grows mildly with system size so large systems stay tight.
+    _pad = max(0.6, 0.04 * span_max)
+    ax.set_xlim(x_min - _pad, x_max + _pad)
+    ax.set_ylim(y_min - _pad, y_max + _pad)
 
     # Densities as scatter
     dens0 = densities[0]
