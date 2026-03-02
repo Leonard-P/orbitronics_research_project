@@ -47,7 +47,7 @@ class RK4NeumannSolver:
         self,
         t: float,
         rho: B.Array,
-        H: B.SparseArray,
+        H: Hamiltonian,
         dt: float,
         rho_0: "B.Array | None" = None,
         tau: float = float("inf"),
@@ -66,14 +66,15 @@ class RK4NeumannSolver:
         Returns:
             None. The density matrix is evolved in-place one RK4 step.
         """
-        k1 = dt * self._time_evolution_derivative(t, rho, H, rho_0, tau)
+        k1 = dt * self._time_evolution_derivative(t, rho, H.at_time(t), rho_0, tau)
+
         k2 = dt * self._time_evolution_derivative(
-            t + 0.5 * dt, rho + 0.5 * k1, H, rho_0, tau
+            t + 0.5 * dt, rho + 0.5 * k1, H.at_time(t + 0.5 * dt), rho_0, tau
         )
         k3 = dt * self._time_evolution_derivative(
-            t + 0.5 * dt, rho + 0.5 * k2, H, rho_0, tau
+            t + 0.5 * dt, rho + 0.5 * k2, H.at_time(t + 0.5 * dt), rho_0, tau
         )
-        k4 = dt * self._time_evolution_derivative(t + dt, rho + k3, H, rho_0, tau)
+        k4 = dt * self._time_evolution_derivative(t + dt, rho + k3, H.at_time(t + dt), rho_0, tau)
 
         rho += (1.0 / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
 
@@ -117,7 +118,7 @@ class RK4NeumannSolver:
             for observable in observables or []:
                 observable.measure(rho, t, step)
 
-            self._rk4_step(t, rho, H.at_time(t), dt, rho_0, tau)
+            self._rk4_step(t, rho, H, dt, rho_0, tau)
 
         for observable in observables or []:
             observable.finalize()

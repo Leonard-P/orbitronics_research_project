@@ -19,6 +19,12 @@ class PlaquetteOAMObservable(Observable):
         hamiltonian: Hamiltonian | None = None,
     ):
         super().__init__(window)
+
+        if hamiltonian is None:
+            print(
+                f"No Hamiltonian passed to {self.__class__}. Assuming Onsite-Potential Hamiltonian with t_hop=1."
+            )
+
         self._hamiltonian = hamiltonian
 
         self._plaquette_anchors_cpu = geometry.bravais_site_indices
@@ -155,8 +161,7 @@ class OrbitalPolarizationObservable(PlaquetteOAMObservable):
 
 
 class SiteDensityObservable(Observable):
-    """Measures the site-resolved electron density :math:`n_i = \\rho_{ii}`.
-    """
+    """Measures the site-resolved electron density :math:`n_i = \\rho_{ii}`."""
 
     def _compute(self, rho: B.Array, t: float) -> B.Array:
         return B.xp().real(B.xp().diag(rho))
@@ -177,6 +182,12 @@ class BondCurrentObservable(Observable):
         hamiltonian: Hamiltonian | None = None,
     ):
         super().__init__(window)
+        
+        if hamiltonian is None:
+            print(
+                f"No Hamiltonian passed to {self.__class__}. Assuming Onsite-Potential Hamiltonian with t_hop=1."
+            )
+
         self._hamiltonian = hamiltonian
 
         nn = geometry.nearest_neighbors

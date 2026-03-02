@@ -51,3 +51,10 @@ class Observable(ABC):
         else:
             self.values = stacked
             self.measurement_times = times
+
+    def reset(self) -> None:
+        """Clear accumulated results and times."""
+        self._results.clear()
+        self._times.clear()
+        self.values = None
+        self.measurement_times = None

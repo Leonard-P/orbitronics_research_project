@@ -31,7 +31,6 @@ __all__ = [
     "RampedACFieldAmplitude",
     "LinearFieldHamiltonian",
     "LinearFieldHamiltonianPeierls",
-    "OrbitalPolarizationHoneycomb",
     "Lattice2DGeometry",
     "HomogeneousFieldAmplitude",
     # functions
