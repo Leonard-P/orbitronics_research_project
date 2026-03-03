@@ -5,7 +5,7 @@ Tight-binding simulations of the orbital Hall effect in a honeycomb lattice, for
 **[Project Report](report.pdf)**
 
 The code to produce the data in the [results](results) folder was and can be run on Google Colab:
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Leonard-P/orbitronics-research-project/blob/main/run_simulations.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Leonard-P/orbitronics_research_project/blob/main/run_simulations.ipynb)
 
 ## Repository structure
 
